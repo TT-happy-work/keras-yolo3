@@ -2,9 +2,28 @@
 *.png
 *.weights
 *.h5
+# Build and Release Folders
+bin-debug/
+bin-release/
+[Oo]bj/
+[Bb]in/
+
+# Other files and folders
+mAP
 logs/
 *_test.py
 
+model_data/*.weights
+model_data/*.h5
+
+
+# ### PyCharm stuff ###
+.idea/
+*.iws
+# Created by https://www.gitignore.io/api/python
+# Edit at https://www.gitignore.io/?templates=python
+
+### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -39,7 +39,7 @@ def get_random_data(annotation_line, input_shape, random=True, max_boxes=20, jit
     image = Image.open(line[0])
     iw, ih = image.size
     h, w = input_shape
-    box = np.array([np.array(list(map(int,box.split(',')))) for box in line[1:]])
+    box = np.array([np.array(list(map(float,box.split(',')))) for box in line[1:]]).astype(np.int)
 
     if not random:
         # resize image

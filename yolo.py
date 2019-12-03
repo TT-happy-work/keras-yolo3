@@ -20,14 +20,19 @@ from keras.utils import multi_gpu_model
 
 class YOLO(object):
     _defaults = {
-        "model_path": 'model_data/yolo.h5',
-        "anchors_path": 'model_data/yolo_anchors.txt',
-        "classes_path": 'model_data/coco_classes.txt',
-        "score" : 0.3,
+        # "model_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/logs/000/83/ep075-loss50.450-val_loss54.474.h5',
+        "model_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/logs/weights/YOLOV3_RECCE_LAST.h5',
+        "anchors_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/model_data/anchors_1-5_cropped_keras.txt',
+        # "anchors_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/model_data/anchors_1-5_cropped.txt',
+        "classes_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/model_data/recce.names',
+        "score" : 0.05,
         "iou" : 0.45,
-        "model_image_size" : (416, 416),
-        "gpu_num" : 1,
+        "model_image_size" : (640, 800),
+        "gpu_num" : 1
     }
+
+
+
 
     @classmethod
     def get_defaults(cls, n):
@@ -42,7 +47,8 @@ class YOLO(object):
         self.class_names = self._get_class()
         self.anchors = self._get_anchors()
         self.sess = K.get_session()
-        self.boxes, self.scores, self.classes = self.generate()
+        self.boxes, self.scores, self.classes, self.box_confidence = self.generate()
+
 
     def _get_class(self):
         classes_path = os.path.expanduser(self.classes_path)
@@ -94,10 +100,10 @@ class YOLO(object):
         self.input_image_shape = K.placeholder(shape=(2, ))
         if self.gpu_num>=2:
             self.yolo_model = multi_gpu_model(self.yolo_model, gpus=self.gpu_num)
-        boxes, scores, classes = yolo_eval(self.yolo_model.output, self.anchors,
+        boxes, scores, classes, box_confidence = yolo_eval(self.yolo_model.output, self.anchors,
                 len(self.class_names), self.input_image_shape,
                 score_threshold=self.score, iou_threshold=self.iou)
-        return boxes, scores, classes
+        return boxes, scores, classes, box_confidence
 
     def detect_image(self, image):
         start = timer()
@@ -165,6 +171,52 @@ class YOLO(object):
         end = timer()
         print(end - start)
         return image
+
+    def detect_image_to_file(self, image):
+        start = timer()
+
+        if self.model_image_size != (None, None):
+            assert self.model_image_size[0]%32 == 0, 'Multiples of 32 required'
+            assert self.model_image_size[1]%32 == 0, 'Multiples of 32 required'
+            boxed_image = letterbox_image(image, tuple(reversed(self.model_image_size)))
+        else:
+            new_image_size = (image.width - (image.width % 32),
+                              image.height - (image.height % 32))
+            boxed_image = letterbox_image(image, new_image_size)
+        image_data = np.array(boxed_image, dtype='float32')
+
+        print(image_data.shape)
+        image_data /= 255.
+        image_data = np.expand_dims(image_data, 0)  # Add batch dimension.
+
+        out_boxes, out_scores, out_classes, out_box_confidence = self.sess.run(
+            [self.boxes, self.scores, self.classes, self.box_confidence],
+            feed_dict={
+                self.yolo_model.input: image_data,
+                self.input_image_shape: [image.size[1], image.size[0]],
+                K.learning_phase(): 0
+            })
+
+        print('Found {} boxes for {}'.format(len(out_boxes), 'img'))
+        for i, c in reversed(list(enumerate(out_classes))):
+            predicted_class = self.class_names[c]
+            box = out_boxes[i]
+            score = out_scores[i]
+
+            top, left, bottom, right = box
+            top = max(0, np.floor(top + 0.5).astype('int32'))
+            left = max(0, np.floor(left + 0.5).astype('int32'))
+            bottom = min(image.size[1], np.floor(bottom + 0.5).astype('int32'))
+            right = min(image.size[0], np.floor(right + 0.5).astype('int32'))
+            box = [left, top, right, bottom]
+            out_boxes[i] = box
+            print((left, top), (right, bottom))
+
+        end = timer()
+        print(end - start)
+
+
+        return np.concatenate([np.expand_dims(out_classes, -1),  np.expand_dims(out_scores, -1), out_boxes], axis=-1)
 
     def close_session(self):
         self.sess.close()

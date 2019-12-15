@@ -20,7 +20,7 @@ import os
 
 
 def _main():
-    annotation_path = '/home/tamar/RecceLite_code_packages/keras-yolo3/model_data/croppedImgs_1_2_3_5_Th06_reg_rare.txt'
+    annotation_path = '/home/tamar/RecceLite_code_packages/keras-yolo3/model_data/croppedImgs_1_2_3_5_Th06_reg_rare_copiedfromDBs.txt'
     log_dir = 'logs/000/'
     classes_path = 'model_data/recce.names'
     anchors_path = 'model_data/yolo_anchors.txt' # 'model_data/anchors_1-5_cropped_keras.txt'

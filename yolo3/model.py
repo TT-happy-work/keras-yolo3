@@ -257,15 +257,26 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
 
     true_boxes = np.array(true_boxes, dtype='float32')
     input_shape = np.array(input_shape, dtype='int32')
+
+    np.clip(true_boxes[..., 0], a_min=0.0, a_max=input_shape[1] - 1, out=true_boxes[..., 0])
+    np.clip(true_boxes[..., 2], a_min=0.0, a_max=input_shape[1] - 1, out=true_boxes[..., 2])
+    np.clip(true_boxes[..., 1], a_min=0.0, a_max=input_shape[0] - 1, out=true_boxes[..., 1])
+    np.clip(true_boxes[..., 3], a_min=0.0, a_max=input_shape[0] - 1, out=true_boxes[..., 3])
+
     boxes_xy = (true_boxes[..., 0:2] + true_boxes[..., 2:4]) // 2
     boxes_wh = true_boxes[..., 2:4] - true_boxes[..., 0:2]
+
+
+
     true_boxes[..., 0:2] = boxes_xy/input_shape[::-1]
     true_boxes[..., 2:4] = boxes_wh/input_shape[::-1]
 
+
+
     print(true_boxes[..., 0:2].max())
 
-    import pdb
-    pdb.set_trace()
+    # import pdb
+    # pdb.set_trace()
 
     m = true_boxes.shape[0]
     grid_shapes = [input_shape//{0:32, 1:16, 2:8}[l] for l in range(num_layers)]

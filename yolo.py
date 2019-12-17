@@ -18,6 +18,7 @@ from yolo3.utils import letterbox_image
 import os
 from keras.utils import multi_gpu_model
 
+
 class YOLO(object):
     _defaults = {
         # "model_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/logs/000/83/ep075-loss50.450-val_loss54.474.h5',
@@ -31,15 +32,16 @@ class YOLO(object):
         "gpu_num" : 1
     }
 
-
-
-
     @classmethod
     def get_defaults(cls, n):
         if n in cls._defaults:
             return cls._defaults[n]
         else:
             return "Unrecognized attribute name '" + n + "'"
+
+    @classmethod
+    def get_defaults(cls):
+        return dict(cls._defaults)
 
     def __init__(self, **kwargs):
         self.__dict__.update(self._defaults) # set up default values
@@ -48,7 +50,6 @@ class YOLO(object):
         self.anchors = self._get_anchors()
         self.sess = K.get_session()
         self.boxes, self.scores, self.classes, self.box_confidence = self.generate()
-
 
     def _get_class(self):
         classes_path = os.path.expanduser(self.classes_path)
@@ -214,7 +215,6 @@ class YOLO(object):
 
         end = timer()
         print(end - start)
-
 
         return np.concatenate([np.expand_dims(out_classes, -1),  np.expand_dims(out_scores, -1), out_boxes], axis=-1)
 

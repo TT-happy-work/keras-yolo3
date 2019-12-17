@@ -1,12 +1,7 @@
-
-import matplotlib.pyplot as plt
-import sys
 import argparse
 from yolo import YOLO, detect_video
 from PIL import Image
 import os
-import pickle
-import json
 import numpy as np
 import colorsys
 import random
@@ -21,13 +16,14 @@ def detect_img(yolo):
         img = input('Input image filename:')
         try:
             image = Image.open(img)
-        except:
+        except IOError:
             print('Open Error! Try again!')
             continue
         else:
             r_image = yolo.detect_image(image)
             r_image.show()
     yolo.close_session()
+
 
 def draw_bbox(image, bboxes, classes):
     """
@@ -48,7 +44,7 @@ def draw_bbox(image, bboxes, classes):
     # print('len(bboxes) = ', len(bboxes))
     for i, bbox in enumerate(bboxes):
         coor = np.array(bbox[2:], dtype=np.int32)
-        fontScale = 0.5
+        font_scale = 0.5
         score = bbox[1]
         class_ind = int(bbox[0])
         # print('class_ind = ', class_ind)
@@ -57,18 +53,18 @@ def draw_bbox(image, bboxes, classes):
         c1, c2 = (coor[0], coor[1]), (coor[2], coor[3])
         cv2.rectangle(image, c1, c2, bbox_color, bbox_thick)
 
-
         bbox_mess = '%s: %.2f' % (classes[class_ind], score)
-        t_size = cv2.getTextSize(bbox_mess, 0, fontScale, thickness=bbox_thick//2)[0]
+        t_size = cv2.getTextSize(bbox_mess, 0, font_scale, thickness=bbox_thick // 2)[0]
         cv2.rectangle(image, c1, (c1[0] + t_size[0], c1[1] - t_size[1] - 3), bbox_color, -1)  # filled
 
-        cv2.putText(image, bbox_mess, (c1[0], c1[1]-2), cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale, (0, 0, 0), bbox_thick//2, lineType=cv2.LINE_AA)
+        cv2.putText(image, bbox_mess, (c1[0], c1[1] - 2), cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale, (0, 0, 0), bbox_thick // 2, lineType=cv2.LINE_AA)
 
     return image
 
-def detect_img_to_file(yolo, annotation_file, pred_output_path, write_image_path=None):
 
+def detect_img_to_file(yolo, annotation_file, pred_output_path, write_image_path=None):
+    res = []
     with open(annotation_file) as f:
         annotation_lines = f.readlines()
         # shuffle dataset
@@ -77,17 +73,17 @@ def detect_img_to_file(yolo, annotation_file, pred_output_path, write_image_path
         line = line.strip('\n')
         image_name = line.split(' ')[0]
         image = Image.open(image_name)
-        res =yolo.detect_image_to_file(image).tolist() # res is all the bb-results(+image path) of a single image
+        res = yolo.detect_image_to_file(image).tolist()  # res is all the bb-results(+image path) of a single image
         bboxes_pr = []
         np_res = []
-        for l in res: # l is a single bbox in the image
-            l_str =[]
-            np_l = np.array(l)
+        for bbox in res:  # l is a single bbox in the image
+            l_str = []
+            np_l = np.array(bbox)
             np_res.append(np_l)
-            for i in range(l.__len__()):
-                l_str.append(str(l[i]))
+            for i in range(bbox.__len__()):
+                l_str.append(str(bbox[i]))
             l_str[0] = yolo.class_names[int(float(l_str[0]))]
-            bboxes_pr.append(l[2:])
+            bboxes_pr.append(bbox[2:])
         # c = [[yolo.class_names[int(l[-1])], l[-2], l[:-2]] for l in np_res]
         # write predictions to files (file per img)
         predict_result_path = os.path.join(pred_output_path, image_name.split('/')[-1].split('.')[0] + '.txt')
@@ -103,7 +99,6 @@ def detect_img_to_file(yolo, annotation_file, pred_output_path, write_image_path
                 f.write(bbox_mess)
                 print('\t' + str(bbox_mess).strip())
 
-
         # with open(os.path.join(pred_output_path, image_name.split('/')[-1].split('.')[0] +'.txt'), 'w') as f:
         #     [f.write(" ".join(x) + "\n") for x in res]
         # save img with bboxes drawn
@@ -114,11 +109,9 @@ def detect_img_to_file(yolo, annotation_file, pred_output_path, write_image_path
             im_path = os.path.join(write_image_path, image_name.split('/')[-1])
             cv2.imwrite(im_path, image)
 
-
     yolo.close_session()
     return res
 
-FLAGS = None
 
 if __name__ == '__main__':
     # class YOLO defines the default value, so suppress any default here
@@ -147,7 +140,7 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        '--image',  default=False, action="store_true",
+        '--image', default=False, action="store_true",
         help='Image detection mode, will ignore all positional arguments'
     )
 
@@ -160,18 +153,18 @@ if __name__ == '__main__':
     Command line positional arguments -- for video detection mode
     '''
     parser.add_argument(
-        "--input", nargs='?', type=str,required=False,
-        help = "Video input path"
+        "--input", nargs='?', type=str, required=False,
+        help="Video input path"
     )
 
     parser.add_argument(
         "--output", nargs='?', type=str, default="",
-        help = "[Optional] Video output path"
+        help="[Optional] Video output path"
     )
 
     parser.add_argument(
         "--write_image_path", type=str, required=False,
-        help = "path to save image with predicted bboxes on it"
+        help="path to save image with predicted bboxes on it"
     )
 
     FLAGS = parser.parse_args()

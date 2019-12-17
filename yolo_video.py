@@ -115,73 +115,56 @@ def detect_img_to_file(yolo, annotation_file, pred_output_path, write_image_path
     return res
 
 
-if __name__ == '__main__':
+def parse_commandline():
     # class YOLO defines the default value, so suppress any default here
     parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
+    yolo_def = argparse.Namespace(**YOLO.get_defaults())
+
     '''
     Command line options
     '''
-    parser.add_argument(
-        '--model', type=str,
-        help='path to model weight file, default ' + YOLO.get_defaults("model_path")
-    )
+    parser.add_argument('--model', type=str, help='path to model weight file, default %s' % yolo_def.model_path)
 
-    parser.add_argument(
-        '--anchors', type=str,
-        help='path to anchor definitions, default ' + YOLO.get_defaults("anchors_path")
-    )
+    parser.add_argument('--anchors', type=str, help='path to anchor definitions, default %s' % yolo_def.anchors_path)
 
-    parser.add_argument(
-        '--classes', type=str,
-        help='path to class definitions, default ' + YOLO.get_defaults("classes_path")
-    )
+    parser.add_argument('--classes', type=str, help='path to class definitions, default %s' % yolo_def.classes_path)
 
-    parser.add_argument(
-        '--gpu_num', type=int,
-        help='Number of GPU to use, default ' + str(YOLO.get_defaults("gpu_num"))
-    )
+    parser.add_argument('--gpu_num', type=int, help='Number of GPU to use, default %s' % yolo_def.gpu_num)
 
-    parser.add_argument(
-        '--image', default=False, action="store_true",
-        help='Image detection mode, will ignore all positional arguments'
-    )
+    parser.add_argument('--image', default=False, action="store_true",
+                        help='Image detection mode, will ignore all positional arguments')
 
-    parser.add_argument(
-        '--val_annotation_file', type=str,
-        help='file of validation-set files'
-    )
+    parser.add_argument('--val_annotation_file', type=str, help='file of validation-set files')
 
     '''
     Command line positional arguments -- for video detection mode
     '''
-    parser.add_argument(
-        "--input", nargs='?', type=str, required=False,
-        help="Video input path"
-    )
+    parser.add_argument("--input", nargs='?', type=str, required=False,
+                        help="Video input path")
 
-    parser.add_argument(
-        "--output", nargs='?', type=str, default="",
-        help="[Optional] Video output path"
-    )
+    parser.add_argument("--output", nargs='?', type=str, default="",
+                        help="[Optional] Video output path")
 
-    parser.add_argument(
-        "--write_image_path", type=str, required=False,
-        help="path to save image with predicted bboxes on it"
-    )
+    parser.add_argument("--write_image_path", type=str, required=False,
+                        help="path to save image with predicted bboxes on it")
 
-    FLAGS = parser.parse_args()
+    opts = parser.parse_args()
+    return opts, parser
 
-    if FLAGS.image:
+
+if __name__ == '__main__':
+    options, parser = parse_commandline()
+    if options.image:
         """
         Image detection mode, disregard any remaining command line arguments
         """
         print("Image detection mode")
-        if "input" in FLAGS:
-            print(" Ignoring remaining command line arguments: " + FLAGS.input + "," + FLAGS.output)
-        detect_img(YOLO(**vars(FLAGS)))
-    elif "input" in FLAGS:
-        detect_video(YOLO(**vars(FLAGS)), FLAGS.input, FLAGS.output)
-    elif "val_annotation_file" in FLAGS:
-        detect_img_to_file(YOLO(**vars(FLAGS)), FLAGS.val_annotation_file, FLAGS.output, FLAGS.write_image_path)
+        if "input" in options:
+            print(" Ignoring remaining command line arguments: " + options.input + "," + options.output)
+        detect_img(YOLO(**vars(options)))
+    elif "input" in options:
+        detect_video(YOLO(**vars(options)), options.input, options.output)
+    elif "val_annotation_file" in options:
+        detect_img_to_file(YOLO(**vars(options)), options.val_annotation_file, options.output, options.write_image_path)
     else:
-        print("Must specify at least video_input_path.  See usage with --help.")
+        print("Must specify at least video_input_path. See usage with --help.")

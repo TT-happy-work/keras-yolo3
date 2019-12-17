@@ -86,6 +86,7 @@ def detect_img_to_file(yolo, annotation_file, pred_output_path, write_image_path
             bboxes_pr.append(bbox[2:])
         # c = [[yolo.class_names[int(l[-1])], l[-2], l[:-2]] for l in np_res]
         # write predictions to files (file per img)
+        os.makedirs(pred_output_path, exist_ok=True)
         predict_result_path = os.path.join(pred_output_path, image_name.split('/')[-1].split('.')[0] + '.txt')
         with open(predict_result_path, 'w') as f:
             for bbox in np_res:
@@ -103,6 +104,7 @@ def detect_img_to_file(yolo, annotation_file, pred_output_path, write_image_path
         #     [f.write(" ".join(x) + "\n") for x in res]
         # save img with bboxes drawn
         if write_image_path:
+            os.makedirs(write_image_path, exist_ok=True)
             image = cv2.imread(image_name)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
             image = draw_bbox(image, np_res, yolo.class_names)

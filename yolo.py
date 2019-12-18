@@ -179,11 +179,11 @@ class YOLO(object):
         if self.model_image_size != (None, None):
             assert self.model_image_size[0]%32 == 0, 'Multiples of 32 required'
             assert self.model_image_size[1]%32 == 0, 'Multiples of 32 required'
-            boxed_image = letterbox_image(image, tuple(reversed(self.model_image_size)))
+            new_image_size = tuple(reversed(self.model_image_size))
         else:
             new_image_size = (image.width - (image.width % 32),
                               image.height - (image.height % 32))
-            boxed_image = letterbox_image(image, new_image_size)
+        boxed_image = letterbox_image(image, new_image_size)
         image_data = np.array(boxed_image, dtype='float32')
 
         print(image_data.shape)

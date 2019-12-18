@@ -21,15 +21,13 @@ from keras.utils import multi_gpu_model
 
 class YOLO(object):
     _defaults = {
-        # "model_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/logs/000/83/ep075-loss50.450-val_loss54.474.h5',
-        "model_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/logs/weights/YOLOV3_RECCE_LAST.h5',
-        "anchors_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/model_data/anchors_1-5_cropped_keras.txt',
-        # "anchors_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/model_data/anchors_1-5_cropped.txt',
-        "classes_path": '/home/tamar/RecceLite_code_packages/keras-yolo3/model_data/recce.names',
-        "score" : 0.05,
-        "iou" : 0.45,
-        "model_image_size" : (640, 800),
-        "gpu_num" : 1
+        "model_path": 'logs/weights/YOLOV3_RECCE_LAST.h5',
+        "anchors_path": 'model_data/anchors_1-5_cropped_keras.txt',
+        "classes_path": 'model_data/recce.names',
+        "score": 0.05,
+        "iou": 0.45,
+        "model_image_size": (640, 800),
+        "gpu_num": 1
     }
 
     @classmethod

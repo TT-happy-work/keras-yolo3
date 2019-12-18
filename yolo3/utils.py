@@ -17,8 +17,12 @@ def compose(*funcs):
     else:
         raise ValueError('Composition of empty sequence not supported.')
 
+
 def letterbox_image(image, size):
-    '''resize image with unchanged aspect ratio using padding'''
+    """resize image with unchanged aspect ratio using padding"""
+    if image.size == size:
+        return image  # avoid unnecessary allocation, resize and copy
+
     iw, ih = image.size
     w, h = size
     scale = min(w/iw, h/ih)
@@ -29,6 +33,7 @@ def letterbox_image(image, size):
     new_image = Image.new('RGB', size, (128,128,128))
     new_image.paste(image, ((w-nw)//2, (h-nh)//2))
     return new_image
+
 
 def rand(a=0, b=1):
     return np.random.rand()*(b-a) + a

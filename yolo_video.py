@@ -71,7 +71,7 @@ def detect_img_to_file(yolo, annotation_file, pred_output_path, write_image_path
 
     for line in annotation_lines:
         line = line.strip('\n')
-        image_name = line.split(' ')[0]
+        image_name = os.path.expanduser(line.split(' ')[0])
         image = Image.open(image_name)
         res = yolo.detect_image_to_file(image).tolist()  # res is all the bb-results(+image path) of a single image
         bboxes_pr = []

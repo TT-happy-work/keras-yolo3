@@ -4,8 +4,6 @@ Class definition of YOLO_v3 style detection model on image and video
 """
 
 import colorsys
-import os
-from timeit import default_timer as timer
 
 import numpy as np
 from keras import backend as K
@@ -105,8 +103,6 @@ class YOLO(object):
         return boxes, scores, classes, box_confidence
 
     def detect_image(self, image):
-        start = timer()
-
         if self.model_image_size != (None, None):
             assert self.model_image_size[0]%32 == 0, 'Multiples of 32 required'
             assert self.model_image_size[1]%32 == 0, 'Multiples of 32 required'
@@ -167,13 +163,9 @@ class YOLO(object):
             draw.text(text_origin, label, fill=(0, 0, 0), font=font)
             del draw
 
-        end = timer()
-        print(end - start)
         return image
 
     def detect_image_to_file(self, image):
-        start = timer()
-
         if self.model_image_size != (None, None):
             assert self.model_image_size[0]%32 == 0, 'Multiples of 32 required'
             assert self.model_image_size[1]%32 == 0, 'Multiples of 32 required'
@@ -213,9 +205,6 @@ class YOLO(object):
 
         ret = np.concatenate([np.expand_dims(out_classes, -1),  np.expand_dims(out_scores, -1), out_boxes], axis=-1)
 
-        end = timer()
-        print(end - start)
-
         return ret
 
     def close_session(self):
@@ -237,16 +226,11 @@ def detect_video(yolo, video_path, output_path=""):
     accum_time = 0
     curr_fps = 0
     fps = "FPS: ??"
-    prev_time = timer()
     while True:
         return_value, frame = vid.read()
         image = Image.fromarray(frame)
         image = yolo.detect_image(image)
         result = np.asarray(image)
-        curr_time = timer()
-        exec_time = curr_time - prev_time
-        prev_time = curr_time
-        accum_time = accum_time + exec_time
         curr_fps = curr_fps + 1
         if accum_time > 1:
             accum_time = accum_time - 1

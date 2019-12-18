@@ -1,4 +1,5 @@
 import argparse
+import cProfile
 from yolo import YOLO, detect_video
 from PIL import Image
 import os
@@ -134,6 +135,12 @@ def parse_commandline():
     parser.add_argument('--image', default=False, action="store_true",
                         help='Image detection mode, will ignore all positional arguments')
 
+    parser.add_argument('--profiling', default=False, action="store_true",
+                        help='run a profiler, statistics are printed to stdout (unless profiling_stats_file is given)')
+
+    parser.add_argument('--profiling_stats_file', type=str, default=None,
+                        help='dump profiler statistics to a given file (implies --profiling)')
+
     parser.add_argument('--val_annotation_file', type=str, help='file of validation-set files')
 
     '''
@@ -149,6 +156,8 @@ def parse_commandline():
                         help="path to save image with predicted bboxes on it")
 
     opts = parser.parse_args()
+    if opts.profiling_stats_file:
+        opts.profiling = True
     return opts, parser
 
 
@@ -165,6 +174,11 @@ if __name__ == '__main__':
     elif "input" in options:
         detect_video(YOLO(**vars(options)), options.input, options.output)
     elif "val_annotation_file" in options:
-        detect_img_to_file(YOLO(**vars(options)), options.val_annotation_file, options.output, options.write_image_path)
+        if options.profiling:
+            cProfile.run('detect_img_to_file(YOLO(**vars(options)), options.val_annotation_file, options.output, options.write_image_path)',
+                         filename=options.profiling_stats_file)
+        else:
+            detect_img_to_file(YOLO(**vars(options)), options.val_annotation_file, options.output,
+                               options.write_image_path)
     else:
         print("Must specify at least video_input_path. See usage with --help.")

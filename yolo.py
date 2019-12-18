@@ -211,10 +211,12 @@ class YOLO(object):
             out_boxes[i] = box
             print((left, top), (right, bottom))
 
+        ret = np.concatenate([np.expand_dims(out_classes, -1),  np.expand_dims(out_scores, -1), out_boxes], axis=-1)
+
         end = timer()
         print(end - start)
 
-        return np.concatenate([np.expand_dims(out_classes, -1),  np.expand_dims(out_scores, -1), out_boxes], axis=-1)
+        return ret
 
     def close_session(self):
         self.sess.close()

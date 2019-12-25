@@ -18,7 +18,7 @@ from yolo3.utils import get_random_data
 from kerassurgeon.operations import delete_channels
 from kerassurgeon import Surgeon,identify
 from keract import get_activations
-# from pruning import get_prunable_layers
+from pruning import get_prunable_layers
 import os
 # os.environ["CUDA_VISIBLE_DEVICES"]=""
 from random import randint
@@ -39,9 +39,9 @@ def _main():
     class_names = get_classes(classes_path)
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
-    # prunable_layers = get_prunable_layers()
+    prunable_layers = get_prunable_layers()
     path_to_frozen_model = '../model_data/frozen_model.pb'
-    data_format = 'channels_first'
+    data_format = 'channels_last'
     # 'channels_first' == NCHW, 'channels_last' = NHWC
 
     input_shape = (640, 800)  # multiple of 32, hw
@@ -53,11 +53,35 @@ def _main():
     checkpoint = ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
         monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
 
-    # model.save(filepath=path_to_keras_model)
-
     frozen_graph = freeze_session(K.get_session(),
                                   output_names=[out.op.name for out in model.outputs])
-    tf.train.write_graph(frozen_graph, "../model_data/", "frozen_model.pb", as_text=False)
+    tf.train.write_graph(frozen_graph, "../model_data/", "frozen_model_before_pruning.pb", as_text=False)
+
+    pruning_percent = 0.1
+    surgeon = Surgeon(model, copy=False)
+    for layer_name in prunable_layers:
+        layer = model.get_layer(name=layer_name)
+        num_channels = layer.filters
+        channels = [i + 1 for i in range(int(num_channels * pruning_percent))]
+        surgeon.add_job('delete_channels', layer, channels=channels)
+
+    #K.clear_session()
+
+    ## TODO: 1. check the surgeon with channels_first - done
+    ##       2. check name of input tensor after pruning - done
+    ##       3. predict on patches one at a time/predict on batch of patches - done
+    ##       4. tensor RT on pb file
+    ##       5. check new create_pb with pruning on nisko
+
+
+
+    model_pruned = surgeon.operate()
+    frozen_graph = freeze_session(K.get_session(),
+                                  output_names=[out.op.name for out in model_pruned.outputs])
+    # tf.train.write_graph(frozen_graph, "../model_data/", "frozen_model_pruned_{:f}_percent.pb".format(pruning_percent*100), as_text=False)
+    tf.train.write_graph(frozen_graph, "../model_data/", "frozen_model_after_pruning.pb", as_text=False)
+
+
 
 
 def get_classes(classes_path):

@@ -23,17 +23,19 @@ import time
 import tensorflow as tf
 import numpy as np
 from pruning import get_prunable_layers
+import tensorflow.contrib.tensorrt as trt
+from tensorflow.python.compiler.tensorrt import trt_convert
 
 def _main():
-    annotation_path = '../model_data/cropped.txt'
+    annotation_path = 'model_data/cropped.txt'
     log_dir = 'logs/000/'
-    classes_path = '../model_data/recce.names'
-    anchors_path = '../model_data/yolo_anchors.txt'
+    classes_path = 'model_data/recce.names'
+    anchors_path = 'model_data/yolo_anchors.txt'
     class_names = get_classes(classes_path)
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
     prunable_layers = get_prunable_layers()
-    path_to_frozen_model = '../model_data/frozen_model.pb'
+    path_to_frozen_model = 'model_data/frozen_model.pb'
     input_shape = (640, 800)  # multiple of 32, hw
 
     data_format = 'channels_first'
@@ -80,6 +82,7 @@ def _main():
             runtimes.append(end_time-start_time)
 
     a = 1
+    print(runtimes)
 #     # Pruning cycles and extra training after each pruning
 #     #     data_format = getattr(layer, 'data_format', 'channels_last')
 

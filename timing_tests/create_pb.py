@@ -6,6 +6,9 @@ import sys
 # import tensorflow.keras as keras
 # sys.modules['keras']=keras
 import numpy as np
+import tensorflow as tf
+import tensorrt as trt
+
 import keras.backend as K
 from keras.layers import Input, Lambda
 from keras.models import Model
@@ -18,7 +21,7 @@ from yolo3.utils import get_random_data
 from kerassurgeon.operations import delete_channels
 from kerassurgeon import Surgeon,identify
 from keract import get_activations
-# from pruning import get_prunable_layers
+from pruning import get_prunable_layers
 import os
 # os.environ["CUDA_VISIBLE_DEVICES"]=""
 from random import randint
@@ -32,15 +35,15 @@ from keras.backend.tensorflow_backend import get_session
 import gc
 
 def _main():
-    annotation_path = '../model_data/cropped.txt'
+    # annotation_path = 'model_data/cropped.txt'
     log_dir = 'logs/000/'
-    classes_path = '../model_data/recce.names'
-    anchors_path = '../model_data/yolo_anchors.txt'
+    classes_path = 'model_data/recce.names'
+    anchors_path = 'model_data/yolo_anchors.txt'
     class_names = get_classes(classes_path)
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
     # prunable_layers = get_prunable_layers()
-    path_to_frozen_model = '../model_data/frozen_model.pb'
+    # path_to_frozen_model = './model_data/frozen_model.pb'
     data_format = 'channels_first'
     # 'channels_first' == NCHW, 'channels_last' = NHWC
 
@@ -55,9 +58,11 @@ def _main():
 
     # model.save(filepath=path_to_keras_model)
 
+    
+
     frozen_graph = freeze_session(K.get_session(),
                                   output_names=[out.op.name for out in model.outputs])
-    tf.train.write_graph(frozen_graph, "../model_data/", "frozen_model.pb", as_text=False)
+    tf.train.write_graph(frozen_graph, "model_data/", "frozen_model.pb", as_text=False)
 
 
 def get_classes(classes_path):

@@ -12,17 +12,18 @@ import time
 from PIL import Image
 from math import ceil
 import tensorflow.contrib.tensorrt as trt
+from tensorflow.python.compiler.tensorrt import trt_convert
 
 def _main():
-    annotation_path = '../model_data/miniDB_full_scale.txt'
+    annotation_path = './model_data/miniDB_full_scale.txt'
     log_dir = 'logs/000/'
-    classes_path = '../model_data/recce.names'
-    anchors_path = '../model_data/yolo_anchors.txt'
+    classes_path = './model_data/recce.names'
+    anchors_path = './model_data/yolo_anchors.txt'
     class_names = get_classes(classes_path)
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
-    path_to_frozen_model = '../model_data/frozen_model.pb'
-    data_format = 'channels_first'  # 'channels_first' == NCHW, 'channels_last' = NHWC
+    path_to_frozen_model = './model_data/frozen_model.pb'
+    data_format = 'channels_last'  # 'channels_first' == NCHW, 'channels_last' = NHWC
     full_scale_img_shape = (2482, 3304)
     patch_shape = (864, 864) # multiple of 32, hw
 
@@ -42,11 +43,11 @@ def _main():
     #                         'conv2d_67_3/BiasAdd:0',
     #                         'conv2d_59_3/BiasAdd:0']
 
-    create_new_model = True
+    create_new_model = False
     perform_rt = True  # need to know the output tensors names if True
     prune_model = False
-    pruning_percent = 0.1
-    pruning_copy_model = True
+    pruning_percent = 0.4
+    pruning_copy_model = False
 
     # create new model pb file
     if create_new_model:
@@ -63,10 +64,24 @@ def _main():
         graph_def.ParseFromString(f.read())
 
     if perform_rt:
+        # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.67)
         graph_def = trt.create_inference_graph(
             input_graph_def=graph_def,
             outputs=output_tensors_names,
-            max_batch_size=12)
+            max_batch_size=1,
+            precision_mode=trt_convert.TrtPrecisionMode.FP16,
+            minimum_segment_size=50,
+            max_workspace_size_bytes=1<<25,
+            # is_dynamic_op=True
+            # maximum_cached_engines = maximum_cached_engines,
+            # cached_engine_batches = cached_engine_batches,
+            # input_saved_model_dir = input_saved_model_dir,
+            # input_saved_model_tags = input_saved_model_tags,
+            # output_saved_model_dir = output_saved_model_dir,
+            # session_config = session_config
+            )
+
+
 
     with tf.Graph().as_default() as graph:
         # The name var will prefix every op/nodes in your graph
@@ -103,7 +118,7 @@ def _main():
     num_patch_height = ceil(ih/float(ph))   # number of patches in height
     num_patch_width  = ceil(iw/float(pw))   # number of patches in width
     num_patches      = num_patch_height * num_patch_width
-    batch_size = num_patches
+    batch_size = 1 # num_patches
 
 
     cropped_imgs = []
@@ -172,7 +187,7 @@ def create_model_pb(input_shape, anchors, num_classes, data_format, log_dir,
     if prune_model == False:
         frozen_graph = freeze_session(K.get_session(),
                                     output_names=[out.op.name for out in model.outputs])
-        tf.train.write_graph(frozen_graph, "../model_data/", "frozen_model.pb", as_text=False)
+        tf.train.write_graph(frozen_graph, "./model_data/", "frozen_model.pb", as_text=False)
         return
 
     # reach here if the model needs to be pruned
@@ -193,7 +208,7 @@ def create_model_pb(input_shape, anchors, num_classes, data_format, log_dir,
     model_pruned = surgeon.operate()
     frozen_graph = freeze_session(K.get_session(),
                                   output_names=[out.op.name for out in model_pruned.outputs])
-    tf.train.write_graph(frozen_graph, "../model_data/", "frozen_model.pb", as_text=False)
+    tf.train.write_graph(frozen_graph, "./model_data/", "frozen_model.pb", as_text=False)
 
 
 def get_classes(classes_path):
@@ -216,6 +231,7 @@ def create_model(input_shape, anchors, num_classes, load_pretrained=True, freeze
             weights_path='model_data/yolo_weights.h5', data_format='channels_last'):
     '''create the training model'''
     K.clear_session() # get a new session
+    K.set_learning_phase(0)
     #nadav_wp
     # image_input = Input(shape=(None, None, 3))
     # h, w = input_shape

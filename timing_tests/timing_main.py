@@ -9,7 +9,7 @@ from pruning import get_prunable_layers
 import tensorflow as tf
 import time
 # from tensorflow.python.client import timeline
-from PIL import Image
+from PIL import Image, ImageOps
 from math import ceil
 import tensorflow.contrib.tensorrt as trt
 from tensorflow.python.compiler.tensorrt import trt_convert
@@ -25,8 +25,9 @@ def _main():
     path_to_frozen_model = './model_data/frozen_model.pb'
     data_format = 'channels_last'  # 'channels_first' == NCHW, 'channels_last' = NHWC
     full_scale_img_shape = (2482, 3304)
-    patch_shape = (864, 864) # multiple of 32, hw
-
+    patch_shape = (40*32, 52*32) #(1280, 1664) # multiple of 32, hw
+    patch_shape = (78*32, 104*32) #(2496, 3328) # multiple of 32, hw
+    #patch_shape = tuple(dim//32*32 for dim in full_scale_img_shape) #(2464, 3296) # multiple of 32, hw
     # tensor names without pruning:
     input_tensor_name = 'input_1:0'
     output_tensors_names = ['conv2d_75/BiasAdd:0',
@@ -43,10 +44,10 @@ def _main():
     #                         'conv2d_67_3/BiasAdd:0',
     #                         'conv2d_59_3/BiasAdd:0']
 
-    create_new_model = False
-    perform_rt = True  # need to know the output tensors names if True
+    create_new_model = True
+    perform_rt = False  # need to know the output tensors names if True
     prune_model = False
-    pruning_percent = 0.4
+    pruning_percent = 0.0
     pruning_copy_model = False
 
     # create new model pb file
@@ -102,25 +103,28 @@ def _main():
     #     graph_def = tf.GraphDef()
     #     graph_def.ParseFromString(f.read())
 
-    # step 2 - create images list with full scale
-    with open(annotation_path) as f:
-        annotation_lines = f.readlines()
-
-    full_scale_imgs = []
-    for annotation_line in annotation_lines:
-        line = annotation_line.split()
-        image = Image.open(line[0])
-        full_scale_imgs.append(np.array(image)/255.)
-
+    # step 2 - create images list with full scale (might be padded to get a multiplication of 32)
     # step 3 - create from each full scale image list of cropped images with requested patch size
+
     ph, pw = patch_shape                # ph - patch height, pw - patch width
     ih, iw = full_scale_img_shape
     num_patch_height = ceil(ih/float(ph))   # number of patches in height
     num_patch_width  = ceil(iw/float(pw))   # number of patches in width
+    # avoid overlap patches:
+    num_patch_height = 1   # number of patches in height
+    num_patch_width  = 1   # number of patches in width
     num_patches      = num_patch_height * num_patch_width
     batch_size = 1 # num_patches
-
-
+    full_scale_imgs = []
+    with open(annotation_path) as f:
+        annotation_lines = f.readlines()
+    for annotation_line in annotation_lines:
+        line = annotation_line.split()
+        image = Image.open(line[0])
+        # resize to handle ph > ih or pw > iw
+        pad_r, pad_c = (max(ph, ih), max(pw, iw))
+        image = ImageOps.expand(image, (pad_c, pad_r))
+        full_scale_imgs.append(np.array(image)/255.)
     cropped_imgs = []
     for img in full_scale_imgs:
         if data_format == 'channels_last':
@@ -156,20 +160,43 @@ def _main():
         # run few images to init the net
         for i in range(len(cropped_imgs)):
             # sess.run(outputs, feed_dict={input_tensor: np.expand_dims(cropped_imgs[i][0], axis=0)})
-            sess.run(outputs_tensors, feed_dict={input_tensor: cropped_imgs[i][:batch_size]})
+            rand_batch = np.random.ranf(cropped_imgs[i].shape)
+            sess.run(outputs_tensors, feed_dict={input_tensor: rand_batch})#[:batch_size]})
 
-        cropped_imgs_runtimes = []
-        for img in cropped_imgs:
-            batch_runtimes = []
-            for i in range(batches_per_full_image):
-                batch = img[i*batch_size:(i+1)*batch_size]
-                batch_start_time = time.perf_counter()
-                sess.run(outputs_tensors, feed_dict={input_tensor: batch})
-                batch_end_time = time.perf_counter()
-                batch_runtimes.append(batch_end_time-batch_start_time)
-            cropped_imgs_runtimes.append(np.sum(batch_runtimes))
+        batch_runtimes = []
+        for cropped_img_batch in cropped_imgs:
+            batch_start_time = time.perf_counter()
+            sess.run(outputs_tensors, feed_dict={input_tensor: cropped_img_batch})
+            batch_end_time = time.perf_counter()
+            batch_runtimes.append(batch_end_time-batch_start_time)
+        
+        batch_runtimes = np.array(batch_runtimes) * 1000  # convert to millis
 
-    a = 1
+        # print timing statistics:
+        print('each image is cropped into a batch of %s patches' % num_patches)
+        print('batches are executed one by one (in a loop)')
+        print('num_images(batches): %s' % len(cropped_imgs))
+        print('num_patches in each batch (=batch-size): %s' % num_patches)
+        print('num_pixels in a batch (image + overhead): %s' % (cropped_img_batch.size/3))
+        n_pxls = ih * iw
+        m_pxls = n_pxls / 1024 / 1024
+        print('num_pixels in an image (real): %s' % (n_pxls))
+        print('per batch (image) timings (millis): min=%.03f, max=%.03f, avg=%.03f, std=%.03f.' % 
+              (batch_runtimes.min(), batch_runtimes.max(), batch_runtimes.mean(), batch_runtimes.std()))
+        batch_runtimes /= 1000 # convert back to seconds
+        print('Mega-Pixels per second (net):       min=%.03f, max=%.03f, avg=%.03f.' % 
+              (m_pxls/batch_runtimes.min(), m_pxls/batch_runtimes.max(), m_pxls/batch_runtimes.mean()))
+    #     cropped_imgs_runtimes = []
+    #     for img in cropped_imgs:
+    #         batch_runtimes = []
+    #         for i in range(batches_per_full_image):
+    #             batch = img[i*batch_size:(i+1)*batch_size]
+    #             batch_start_time = time.perf_counter()
+    #             sess.run(outputs_tensors, feed_dict={input_tensor: batch})
+    #             batch_end_time = time.perf_counter()
+    #             batch_runtimes.append(batch_end_time-batch_start_time)
+    #         cropped_imgs_runtimes.append(np.sum(batch_runtimes))
+    #     # a = 1
 
 
 # model creation functions
@@ -287,7 +314,7 @@ def freeze_session(session, keep_var_names=None, output_names=None, clear_device
     """
     graph = session.graph
     with graph.as_default():
-        freeze_var_names = list(set(v.op.name for v in tf.global_variables()).difference(keep_var_names or []))
+        freeze_var_names = list({v.op.name for v in tf.global_variables()}.difference(keep_var_names or []))
         output_names = output_names or []
         output_names += [v.op.name for v in tf.global_variables()]
         input_graph_def = graph.as_graph_def()

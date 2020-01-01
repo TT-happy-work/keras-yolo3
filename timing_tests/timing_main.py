@@ -23,11 +23,11 @@ def _main():
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
     path_to_frozen_model = './model_data/frozen_model.pb'
-    data_format = 'channels_last'  # 'channels_first' == NCHW, 'channels_last' = NHWC
+    data_format = 'channels_first'  # 'channels_first' == NCHW, 'channels_last' = NHWC
     full_scale_img_shape = (2482, 3304)
     patch_shape = (40*32, 52*32) #(1280, 1664) # multiple of 32, hw
     patch_shape = (78*32, 104*32) #(2496, 3328) # multiple of 32, hw
-    #patch_shape = tuple(dim//32*32 for dim in full_scale_img_shape) #(2464, 3296) # multiple of 32, hw
+    patch_shape = tuple(dim//32*32 for dim in full_scale_img_shape) #(2464, 3296) # multiple of 32, hw
     # tensor names without pruning:
     input_tensor_name = 'input_1:0'
     output_tensors_names = ['conv2d_75/BiasAdd:0',
@@ -121,17 +121,16 @@ def _main():
     for annotation_line in annotation_lines:
         line = annotation_line.split()
         image = Image.open(line[0])
-        # resize to handle ph > ih or pw > iw
-        pad_r, pad_c = (max(ph, ih), max(pw, iw))
-        image = ImageOps.expand(image, (pad_c, pad_r))
+        dw = iw - pw
+        dh = ih - ph
+        border = (dw//2, dh//2, iw-dw//2-pw, ih-dh//2-ph)  # (left, top, right, bottom)
+        image = ImageOps.crop(image, border)
+        assert image.size == (pw,ph)
         full_scale_imgs.append(np.array(image)/255.)
     cropped_imgs = []
+    cropped_img_shape=(num_patches, ph, pw, 3) if data_format == 'channels_last' else (num_patches, 3, ph, pw)
     for img in full_scale_imgs:
-        if data_format == 'channels_last':
-            cropped_img = np.empty(shape=(num_patches, ph, pw, 3), dtype=np.float64)
-        elif data_format == 'channels_first':
-            cropped_img = np.empty(shape=(num_patches, 3, ph, pw), dtype=np.float64)
-
+        cropped_img = np.empty(shape=cropped_img_shape, dtype=np.float64)
         cnt=0
         for i in range(num_patch_height):
             for j in range(num_patch_width):
@@ -163,29 +162,37 @@ def _main():
             rand_batch = np.random.ranf(cropped_imgs[i].shape)
             sess.run(outputs_tensors, feed_dict={input_tensor: rand_batch})#[:batch_size]})
 
-        batch_runtimes = []
-        for cropped_img_batch in cropped_imgs:
-            batch_start_time = time.perf_counter()
-            sess.run(outputs_tensors, feed_dict={input_tensor: cropped_img_batch})
-            batch_end_time = time.perf_counter()
-            batch_runtimes.append(batch_end_time-batch_start_time)
         
-        batch_runtimes = np.array(batch_runtimes) * 1000  # convert to millis
+        for batch_size in [1,2,3]:
+            print ('running with batch size: %s ...' % batch_size)
+            num_batches = len(cropped_imgs) // batch_size
+            batches = np.concatenate(cropped_imgs)
+            batch_runtimes = []
+            #for cropped_img_batch in cropped_imgs:
+            for i in range(num_batches):
+                batch = batches[i*batch_size:(i+1)*batch_size]
+                batch_start_time = time.perf_counter()
+                ret = sess.run(outputs_tensors, feed_dict={input_tensor: batch})
+                batch_end_time = time.perf_counter()
+                batch_runtimes.append(batch_end_time-batch_start_time)
+                ret_sizes = [r.shape for r in ret]
+                print("Input tensor shapes: ", batch.shape)
+                print("Returned tensor shapes: %s" % ret_sizes)
+        
+            batch_runtimes = np.array(batch_runtimes) * 1000  # convert to millis
 
-        # print timing statistics:
-        print('each image is cropped into a batch of %s patches' % num_patches)
-        print('batches are executed one by one (in a loop)')
-        print('num_images(batches): %s' % len(cropped_imgs))
-        print('num_patches in each batch (=batch-size): %s' % num_patches)
-        print('num_pixels in a batch (image + overhead): %s' % (cropped_img_batch.size/3))
-        n_pxls = ih * iw
-        m_pxls = n_pxls / 1024 / 1024
-        print('num_pixels in an image (real): %s' % (n_pxls))
-        print('per batch (image) timings (millis): min=%.03f, max=%.03f, avg=%.03f, std=%.03f.' % 
-              (batch_runtimes.min(), batch_runtimes.max(), batch_runtimes.mean(), batch_runtimes.std()))
-        batch_runtimes /= 1000 # convert back to seconds
-        print('Mega-Pixels per second (net):       min=%.03f, max=%.03f, avg=%.03f.' % 
-              (m_pxls/batch_runtimes.min(), m_pxls/batch_runtimes.max(), m_pxls/batch_runtimes.mean()))
+            # print timing statistics:
+            print('num_batches is: %s ' % num_batches)
+            print('num_images in a batch (bathch_size): %s' % batch_size)
+            print('num processed pixels in a batch (bathch_size * image-size): %s' % (batch_size * batches[0].size / 3))
+            n_pxls = ih * iw * batch_size
+            m_pxls = n_pxls / 1024 / 1024
+            print('num of input pixels in a batch: %s' % (n_pxls))
+            print('per batch timings (millis):    min=%.03f, max=%.03f, avg=%.03f, std=%.03f.' % 
+                (batch_runtimes.min(), batch_runtimes.max(), batch_runtimes.mean(), batch_runtimes.std()))
+            batch_runtimes /= 1000 # convert back to seconds
+            print('Mega-Pixels per second (net):  min=%.03f, max=%.03f, avg=%.03f.' % 
+                (m_pxls/batch_runtimes.min(), m_pxls/batch_runtimes.max(), m_pxls/batch_runtimes.mean()))
     #     cropped_imgs_runtimes = []
     #     for img in cropped_imgs:
     #         batch_runtimes = []

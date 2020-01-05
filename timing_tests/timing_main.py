@@ -50,6 +50,11 @@ def _main():
     pruning_percent = 0.0
     pruning_copy_model = False
 
+    # validate args:
+    if create_new_model and perform_rt:
+        print("Warning: Can't perform Tensor-RT optimization along with create_new_model - perform_rt will be set to False.")
+        perform_rt = False
+
     # create new model pb file
     if create_new_model:
         create_model_pb(input_shape=patch_shape, anchors=anchors, num_classes=num_classes,

@@ -178,6 +178,8 @@ def _main():
 
         
         for batch_size in [1,2,3]:
+
+        for batch_size in range(1, len(cropped_imgs)):
             print ('running with batch size: %s ...' % batch_size)
             num_batches = len(cropped_imgs) // batch_size
             batches = np.concatenate(cropped_imgs)

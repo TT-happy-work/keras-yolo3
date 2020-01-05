@@ -1,6 +1,6 @@
 {
     "python.pythonPath": "venv/bin/python",
     "files.watcherExclude": {
-        "venv/**": true
+        "**/venv/**": true
     }
 }

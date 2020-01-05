@@ -13,6 +13,7 @@ from PIL import Image, ImageOps
 from math import ceil
 import tensorflow.contrib.tensorrt as trt
 from tensorflow.python.compiler.tensorrt import trt_convert
+from tensorflow.python.client import timeline
 
 def _main():
     annotation_path = './model_data/miniDB_full_scale.txt'
@@ -49,6 +50,7 @@ def _main():
     prune_model = False
     pruning_percent = 0.0
     pruning_copy_model = False
+    save_profiling_info = True
 
     # validate args:
     if create_new_model and perform_rt:
@@ -176,8 +178,9 @@ def _main():
             rand_batch = np.random.ranf(cropped_imgs[i].shape)
             sess.run(outputs_tensors, feed_dict={input_tensor: rand_batch})#[:batch_size]})
 
-        
-        for batch_size in [1,2,3]:
+        if save_profiling_info:
+            options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+            run_metadata = tf.RunMetadata()
 
         for batch_size in range(1, len(cropped_imgs)):
             print ('running with batch size: %s ...' % batch_size)
@@ -188,8 +191,17 @@ def _main():
             for i in range(num_batches):
                 batch = batches[i*batch_size:(i+1)*batch_size]
                 batch_start_time = time.perf_counter()
-                ret = sess.run(outputs_tensors, feed_dict={input_tensor: batch})
-                batch_end_time = time.perf_counter()
+                if save_profiling_info:
+                    ret = sess.run(outputs_tensors, feed_dict={input_tensor: batch},
+                                   options=options, run_metadata=run_metadata)
+                    batch_end_time = time.perf_counter()
+                    fetched_timeline = timeline.Timeline(run_metadata.step_stats)
+                    chrome_trace = fetched_timeline.generate_chrome_trace_format()
+                    with open('timeline_batch_size_%d_iteration_%d_of_%d.json' % (batch_size, i, num_batches), 'w') as f:
+                        f.write(chrome_trace)
+                else:
+                    ret = sess.run(outputs_tensors, feed_dict={input_tensor: batch})
+                    batch_end_time = time.perf_counter()
                 batch_runtimes.append(batch_end_time-batch_start_time)
                 ret_sizes = [r.shape for r in ret]
                 if i == 0:

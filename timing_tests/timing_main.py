@@ -190,8 +190,9 @@ def _main():
                 batch_end_time = time.perf_counter()
                 batch_runtimes.append(batch_end_time-batch_start_time)
                 ret_sizes = [r.shape for r in ret]
-                print("Input tensor shapes: ", batch.shape)
-                print("Returned tensor shapes: %s" % ret_sizes)
+                if i == 0:
+                    print("Input tensor shapes: ", batch.shape)
+                    print("Returned tensor shapes: %s" % ret_sizes)
         
             batch_runtimes = np.array(batch_runtimes) * 1000  # convert to millis
 
@@ -199,13 +200,13 @@ def _main():
             print('num_batches is: %s ' % num_batches)
             print('num_images in a batch (bathch_size): %s' % batch_size)
             print('num processed pixels in a batch (bathch_size * image-size): %s' % (batch_size * batches[0].size / 3))
-            n_pxls = ih * iw * batch_size
+            n_pxls = batch_size * batches[0].size / 3
             m_pxls = n_pxls / 1024 / 1024
-            print('num of input pixels in a batch: %s' % (n_pxls))
+            print('num of input mega pixels in a batch: %.03f' % (m_pxls))
             print('per batch timings (millis):    min=%.03f, max=%.03f, avg=%.03f, std=%.03f.' % 
                 (batch_runtimes.min(), batch_runtimes.max(), batch_runtimes.mean(), batch_runtimes.std()))
             batch_runtimes /= 1000 # convert back to seconds
-            print('Mega-Pixels per second (net):  min=%.03f, max=%.03f, avg=%.03f.' % 
+            print('Mega-Pixels per second (net):  best=%.03f, worst=%.03f, avg=%.03f.' % 
                 (m_pxls/batch_runtimes.min(), m_pxls/batch_runtimes.max(), m_pxls/batch_runtimes.mean()))
     #     cropped_imgs_runtimes = []
     #     for img in cropped_imgs:

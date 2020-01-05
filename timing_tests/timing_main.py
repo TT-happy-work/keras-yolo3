@@ -57,6 +57,9 @@ def _main():
 
     # create new model pb file
     if create_new_model:
+        print("\n".join(["*******************************",
+                         "* Creating a new pb model ... *",
+                         "*******************************"]))
         create_model_pb(input_shape=patch_shape, anchors=anchors, num_classes=num_classes,
                         data_format=data_format, log_dir=log_dir, prune_model=prune_model,
                         pruning_percent=pruning_percent, pruning_copy_model=pruning_copy_model)
@@ -65,11 +68,17 @@ def _main():
 
     # step 1 - load graph from pb file, get input and output tensors
     # graph = load_graph(path_to_frozen_model)
+    print("\n".join(["*************************************************",
+                     "* Loading existing / new pb model from file ... *",
+                     "*************************************************"]))
     with tf.gfile.GFile(path_to_frozen_model, "rb") as f:
         graph_def = tf.GraphDef()
         graph_def.ParseFromString(f.read())
 
     if perform_rt:
+        print("\n".join(["**************************************************",
+                         "* Optimizing the loaded graph with Tensor-RT ... *",
+                         "**************************************************"]))
         # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.67)
         graph_def = trt.create_inference_graph(
             input_graph_def=graph_def,

@@ -25,9 +25,9 @@ def _main():
     path_to_frozen_model = './model_data/frozen_model.pb'
     data_format = 'channels_first'  # 'channels_first' == NCHW, 'channels_last' = NHWC
     full_scale_img_shape = (2482, 3304)
-    patch_shape = (40*32, 52*32) #(1280, 1664) # multiple of 32, hw
-    patch_shape = (78*32, 104*32) #(2496, 3328) # multiple of 32, hw
-    patch_shape = tuple(dim//32*32 for dim in full_scale_img_shape) #(2464, 3296) # multiple of 32, hw
+    patch_shape = (20*32, 25*32) #(1280, 1664) # multiple of 32, hw
+    # patch_shape = (30*32, 30*32) #(2496, 3328) # multiple of 32, hw
+    # patch_shape = tuple(dim//32*32 for dim in full_scale_img_shape) #(2464, 3296) # multiple of 32, hw
     # tensor names without pruning:
     input_tensor_name = 'input_1:0'
     output_tensors_names = ['conv2d_75/BiasAdd:0',
@@ -70,9 +70,9 @@ def _main():
             input_graph_def=graph_def,
             outputs=output_tensors_names,
             max_batch_size=1,
-            precision_mode=trt_convert.TrtPrecisionMode.FP16,
-            minimum_segment_size=50,
-            max_workspace_size_bytes=1<<25,
+            precision_mode=trt_convert.TrtPrecisionMode.FP32,
+            #minimum_segment_size=50,
+            max_workspace_size_bytes=1<<30,
             # is_dynamic_op=True
             # maximum_cached_engines = maximum_cached_engines,
             # cached_engine_batches = cached_engine_batches,
@@ -81,7 +81,7 @@ def _main():
             # output_saved_model_dir = output_saved_model_dir,
             # session_config = session_config
             )
-
+        print("number of TRT ops: %s" % len([1 for n in graph_def.node if str(n.op)=='TRTEngineOp']))
 
 
     with tf.Graph().as_default() as graph:

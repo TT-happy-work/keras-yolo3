@@ -12,6 +12,7 @@ bin-release/
 mAP
 logs/
 *_test.py
+timeline_*.json
 
 model_data/*.weights
 model_data/*.h5

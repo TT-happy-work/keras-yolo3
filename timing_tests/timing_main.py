@@ -7,13 +7,16 @@ from yolo3.model import yolo_body, yolo_loss
 from kerassurgeon import Surgeon
 from pruning import get_prunable_layers
 import tensorflow as tf
+#tf.logging.set_verbosity(tf.logging.DEBUG)
+
 import time
 # from tensorflow.python.client import timeline
 from PIL import Image, ImageOps
 from math import ceil
 import tensorflow.contrib.tensorrt as trt
-from tensorflow.python.compiler.tensorrt import trt_convert
+#from tensorflow.python.compiler.tensorrt import trt_convert
 from tensorflow.python.client import timeline
+
 
 def _main():
     annotation_path = './model_data/miniDB_full_scale.txt'
@@ -24,6 +27,7 @@ def _main():
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
     path_to_frozen_model = './model_data/frozen_model.pb'
+    path_to_trt_model = './model_data/trt_model.pb'
     data_format = 'channels_first'  # 'channels_first' == NCHW, 'channels_last' = NHWC
     full_scale_img_shape = (2482, 3304)
     patch_shape = (20*32, 25*32) #(1280, 1664) # multiple of 32, hw
@@ -47,11 +51,14 @@ def _main():
     #                         'conv2d_59_3/BiasAdd:0']
 
     create_new_model = True
+    load_unoptimized = False
     perform_rt = False  # need to know the output tensors names if True
+    load_trt_optimized = False
     prune_model = False
     pruning_percent = 0.0
     pruning_copy_model = False
-    save_profiling_info = True
+    save_profiling_info = False
+    run_test = True
 
     # validate args:
     if create_new_model and perform_rt:
@@ -71,40 +78,59 @@ def _main():
 
     # step 1 - load graph from pb file, get input and output tensors
     # graph = load_graph(path_to_frozen_model)
-    print("\n".join(["*************************************************",
-                     "* Loading existing / new pb model from file ... *",
-                     "*************************************************"]))
-    with tf.gfile.GFile(path_to_frozen_model, "rb") as f:
-        graph_def = tf.GraphDef()
-        graph_def.ParseFromString(f.read())
+    if load_unoptimized:
+        print("\n".join(["*************************************************",
+                         "* Loading existing / new pb model from file ... *",
+                         "*************************************************"]))
+        with tf.io.gfile.GFile(path_to_frozen_model, "rb") as f:
+            graph_def = tf.compat.v1.GraphDef()
+            graph_def.ParseFromString(f.read())
 
+    total_gpu_mem = 6 * (1 << 30)  # 6GB
+    max_workspace_size_bytes = 2 * (1 << 30)
+    reserved_gpu_mem = 1 * (1 << 30)  # 1GB - reserved for desktop GUI
+    tf_session_mem = total_gpu_mem - max_workspace_size_bytes - reserved_gpu_mem
+    tf_session_mem_fraction = tf_session_mem / total_gpu_mem
+    session_config=tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction = tf_session_mem_fraction))
     if perform_rt:
         print("\n".join(["**************************************************",
                          "* Optimizing the loaded graph with Tensor-RT ... *",
                          "**************************************************"]))
-        # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.67)
-        graph_def = trt.create_inference_graph(
-            input_graph_def=graph_def,
-            outputs=output_tensors_names,
-            max_batch_size=1,
-            precision_mode=trt_convert.TrtPrecisionMode.FP32,
-            #minimum_segment_size=50,
-            max_workspace_size_bytes=1<<30,
-            # is_dynamic_op=True
-            # maximum_cached_engines = maximum_cached_engines,
-            # cached_engine_batches = cached_engine_batches,
-            # input_saved_model_dir = input_saved_model_dir,
-            # input_saved_model_tags = input_saved_model_tags,
-            # output_saved_model_dir = output_saved_model_dir,
-            # session_config = session_config
-            )
+        with tf.Session(config=session_config) as sess:
+            graph_def = trt.create_inference_graph(
+                input_graph_def=graph_def,
+                outputs=output_tensors_names,
+                max_batch_size=1,
+                precision_mode="FP32",
+                #minimum_segment_size=50,
+                max_workspace_size_bytes=max_workspace_size_bytes,
+                # is_dynamic_op=True
+                # maximum_cached_engines = maximum_cached_engines,
+                # cached_engine_batches = cached_engine_batches,
+                # input_saved_model_dir = input_saved_model_dir,
+                # input_saved_model_tags = input_saved_model_tags,
+                # output_saved_model_dir = output_saved_model_dir,
+                # session_config=session_config
+                )
         print("number of TRT ops: %s" % len([1 for n in graph_def.node if str(n.op)=='TRTEngineOp']))
+        print("Trt graph size (MB): %.1f" % (float(len(graph_def.SerializeToString()))/(1<<20)))
+        print("Saving optimized graph to '%s' ..." % path_to_trt_model)
+        #tf.io.write_graph(graph_def, "./model_data/", "my_trt_frozen_model.pb", as_text=False)
+        with open(path_to_trt_model, "wb") as f:
+            bytes_written = f.write(graph_def.SerializeToString())
+            print("Trt graph size (MB) on disk is: %.1f" % (float(bytes_written/(1<<20))))
 
+    if load_trt_optimized:
+        print("\n".join(["*************************************************",
+                         "* Loading trt-optimized model from pb file ...  *",
+                         "*************************************************"]))
+        with tf.io.gfile.GFile(path_to_trt_model, "rb") as f:
+            graph_def = tf.compat.v1.GraphDef()
+            graph_def.ParseFromString(f.read())
 
-    with tf.Graph().as_default() as graph:
-        # The name var will prefix every op/nodes in your graph
-        # Since we load everything in a new graph, this is not needed
-        tf.import_graph_def(graph_def, name='')
+    if not run_test:
+        return
+
     #
 
     # used this to find the output tensors name.
@@ -112,9 +138,6 @@ def _main():
     # for op in graph.get_operations():
     #     ops.append(op)
 
-    # TODO - look for a way to find tensor names automatically
-    input_tensor = graph.get_tensor_by_name(input_tensor_name)
-    outputs_tensors = [graph.get_tensor_by_name(name) for name in output_tensors_names]
 
     # with tf.gfile.GFile(path_to_frozen_model, "rb") as f:
     #     graph_def = tf.GraphDef()
@@ -167,62 +190,64 @@ def _main():
                 cnt = cnt+1
         cropped_imgs.append(cropped_img)
 
+    with tf.Graph().as_default() as graph:
+        # The name var will prefix every op/nodes in your graph
+        # Since we load everything in a new graph, this is not needed
+        tf.import_graph_def(graph_def, name='')
+        # TODO - look for a way to find tensor names automatically
+        input_tensor = graph.get_tensor_by_name(input_tensor_name)
+        outputs_tensors = [graph.get_tensor_by_name(name) for name in output_tensors_names]
+        with tf.Session(graph=graph, config=session_config) as sess:
+            # run few images to init the net
+            for i in range(len(cropped_imgs)):
+                # sess.run(outputs, feed_dict={input_tensor: np.expand_dims(cropped_imgs[i][0], axis=0)})
+                rand_batch = np.random.ranf(cropped_imgs[i].shape)
+                sess.run(outputs_tensors, feed_dict={input_tensor: rand_batch})#[:batch_size]})
 
-    # step 4 - divide each img to batches and predict on batch
-    # TODO: for now all batches have the same size (number of patches is divisible by batch size)
-    batches_per_full_image = ceil(num_patches / float(batch_size))
+            if save_profiling_info:
+                options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                run_metadata = tf.RunMetadata()
 
-    with tf.Session(graph=graph) as sess:
-        # run few images to init the net
-        for i in range(len(cropped_imgs)):
-            # sess.run(outputs, feed_dict={input_tensor: np.expand_dims(cropped_imgs[i][0], axis=0)})
-            rand_batch = np.random.ranf(cropped_imgs[i].shape)
-            sess.run(outputs_tensors, feed_dict={input_tensor: rand_batch})#[:batch_size]})
+            for batch_size in range(1, len(cropped_imgs)):
+                print ('running with batch size: %s ...' % batch_size)
+                num_batches = len(cropped_imgs) // batch_size
+                batches = np.concatenate(cropped_imgs)
+                batch_runtimes = []
+                #for cropped_img_batch in cropped_imgs:
+                for i in range(num_batches):
+                    batch = batches[i*batch_size:(i+1)*batch_size]
+                    batch_start_time = time.perf_counter()
+                    if save_profiling_info:
+                        ret = sess.run(outputs_tensors, feed_dict={input_tensor: batch},
+                                    options=options, run_metadata=run_metadata)
+                        batch_end_time = time.perf_counter()
+                        fetched_timeline = timeline.Timeline(run_metadata.step_stats)
+                        chrome_trace = fetched_timeline.generate_chrome_trace_format()
+                        with open('timeline_batch_size_%d_iteration_%d_of_%d.json' % (batch_size, i, num_batches), 'w') as f:
+                            f.write(chrome_trace)
+                    else:
+                        ret = sess.run(outputs_tensors, feed_dict={input_tensor: batch})
+                        batch_end_time = time.perf_counter()
+                    batch_runtimes.append(batch_end_time-batch_start_time)
+                    ret_sizes = [r.shape for r in ret]
+                    if i == 0:
+                        print("Input tensor shapes: ", batch.shape)
+                        print("Returned tensor shapes: %s" % ret_sizes)
 
-        if save_profiling_info:
-            options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-            run_metadata = tf.RunMetadata()
+                batch_runtimes = np.array(batch_runtimes) * 1000  # convert to millis
 
-        for batch_size in range(1, len(cropped_imgs)):
-            print ('running with batch size: %s ...' % batch_size)
-            num_batches = len(cropped_imgs) // batch_size
-            batches = np.concatenate(cropped_imgs)
-            batch_runtimes = []
-            #for cropped_img_batch in cropped_imgs:
-            for i in range(num_batches):
-                batch = batches[i*batch_size:(i+1)*batch_size]
-                batch_start_time = time.perf_counter()
-                if save_profiling_info:
-                    ret = sess.run(outputs_tensors, feed_dict={input_tensor: batch},
-                                   options=options, run_metadata=run_metadata)
-                    batch_end_time = time.perf_counter()
-                    fetched_timeline = timeline.Timeline(run_metadata.step_stats)
-                    chrome_trace = fetched_timeline.generate_chrome_trace_format()
-                    with open('timeline_batch_size_%d_iteration_%d_of_%d.json' % (batch_size, i, num_batches), 'w') as f:
-                        f.write(chrome_trace)
-                else:
-                    ret = sess.run(outputs_tensors, feed_dict={input_tensor: batch})
-                    batch_end_time = time.perf_counter()
-                batch_runtimes.append(batch_end_time-batch_start_time)
-                ret_sizes = [r.shape for r in ret]
-                if i == 0:
-                    print("Input tensor shapes: ", batch.shape)
-                    print("Returned tensor shapes: %s" % ret_sizes)
-        
-            batch_runtimes = np.array(batch_runtimes) * 1000  # convert to millis
-
-            # print timing statistics:
-            print('num_batches is: %s ' % num_batches)
-            print('num_images in a batch (bathch_size): %s' % batch_size)
-            print('num processed pixels in a batch (bathch_size * image-size): %s' % (batch_size * batches[0].size / 3))
-            n_pxls = batch_size * batches[0].size / 3
-            m_pxls = n_pxls / 1024 / 1024
-            print('num of input mega pixels in a batch: %.03f' % (m_pxls))
-            print('per batch timings (millis):    min=%.03f, max=%.03f, avg=%.03f, std=%.03f.' % 
-                (batch_runtimes.min(), batch_runtimes.max(), batch_runtimes.mean(), batch_runtimes.std()))
-            batch_runtimes /= 1000 # convert back to seconds
-            print('Mega-Pixels per second (net):  best=%.03f, worst=%.03f, avg=%.03f.' % 
-                (m_pxls/batch_runtimes.min(), m_pxls/batch_runtimes.max(), m_pxls/batch_runtimes.mean()))
+                # print timing statistics:
+                print('num_batches is: %s ' % num_batches)
+                print('num_images in a batch (bathch_size): %s' % batch_size)
+                print('num processed pixels in a batch (bathch_size * image-size): %s' % (batch_size * batches[0].size / 3))
+                n_pxls = batch_size * batches[0].size / 3
+                m_pxls = n_pxls / 1024 / 1024
+                print('num of input mega pixels in a batch: %.03f' % (m_pxls))
+                print('per batch timings (millis):    min=%.03f, max=%.03f, avg=%.03f, std=%.03f.' %
+                    (batch_runtimes.min(), batch_runtimes.max(), batch_runtimes.mean(), batch_runtimes.std()))
+                batch_runtimes /= 1000 # convert back to seconds
+                print('Mega-Pixels per second (net):  best=%.03f, worst=%.03f, avg=%.03f.' %
+                    (m_pxls/(batch_runtimes.min()), m_pxls/(batch_runtimes.max()), m_pxls/(batch_runtimes.mean())))
     #     cropped_imgs_runtimes = []
     #     for img in cropped_imgs:
     #         batch_runtimes = []
@@ -324,6 +349,7 @@ def create_model(input_shape, anchors, num_classes, load_pretrained=True, freeze
     model_loss = Lambda(yolo_loss, output_shape=(1,), name='yolo_loss',
         arguments={'anchors': anchors, 'num_classes': num_classes, 'ignore_thresh': 0.5})(
         [*model_body.output, *y_true])
+    ###
     # nadav_wp_runtime-
     # original
     # model = Model([model_body.input, *y_true], model_loss)
@@ -379,5 +405,54 @@ def load_graph(frozen_graph_filename):
         tf.import_graph_def(graph_def)
     return graph
 
+def inference(trt_graph, n_time_inference=50):
+    # Inference with TF-TRT `MetaGraph` and checkpoint files workflow:
+    graph = tf.Graph()
+    with graph.as_default():
+        with tf.Session(config=tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.7))) as sess:
+            print("session created")
+            # load TensorRT graph
+            tf.import_graph_def(trt_graph, name='')
+            print("session graph imported")
+
+            input_tensor_name = 'input_1:0'
+            output_tensors_names = ['conv2d_75/BiasAdd:0', 'conv2d_67/BiasAdd:0', 'conv2d_59/BiasAdd:0']
+            if tf.__version__ in ['1.13.1', '1.13.0']:
+                output_tensors_names = ['conv2d_59/add:0', 'conv2d_67/add:0', 'conv2d_75/add:0']
+
+            input = sess.graph.get_tensor_by_name(input_tensor_name)
+            in_shape = tuple(dim.value or 1 for dim in input.shape)
+            outputs = [sess.graph.get_tensor_by_name(name) for name in output_tensors_names]
+
+            # perform inference for 50 times
+            total_time = 0;
+            input_img = np.random.ranf(in_shape)
+            print("input shape is: ", in_shape)
+
+            for i in range(10):  # warm-up
+                out_pred = sess.run(outputs, feed_dict={input: input_img})
+            for i in range(n_time_inference):
+                input_img = np.random.ranf(in_shape)
+                t1 = time.time()
+                out_pred = sess.run(outputs, feed_dict={input: input_img})
+                t2 = time.time()
+                delta_time = t2 - t1
+                total_time += delta_time
+                #print("needed time in inference-" + str(i) + ": ", delta_time)
+    return 1000 * total_time / n_time_inference
+
 if __name__ == '__main__':
-    _main()
+    if 0:
+        path_to_trt_model = './model_data/trt_model.pb'
+        path_to_frozen_model = './model_data/frozen_model.pb'
+        for path_to_pb in [path_to_frozen_model, path_to_trt_model]:
+            print('*'*20)
+            print("loading graph from: %s" % path_to_pb)
+            with tf.io.gfile.GFile(path_to_frozen_model, "rb") as f:
+                graph_def = tf.compat.v1.GraphDef()
+                graph_def.ParseFromString(f.read())
+            print("testing inference ...")
+            avg_time = inference(graph_def)
+            print("average inference time (millis) measured: %.03f" % avg_time)
+    else:
+        _main()

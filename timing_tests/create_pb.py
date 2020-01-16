@@ -42,9 +42,9 @@ def _main():
     class_names = get_classes(classes_path)
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
-    # prunable_layers = get_prunable_layers()
-    # path_to_frozen_model = './model_data/frozen_model.pb'
-    data_format = 'channels_first'
+    prunable_layers = get_prunable_layers()
+    path_to_frozen_model = '../model_data/frozen_model.pb'
+    data_format = 'channels_last'
     # 'channels_first' == NCHW, 'channels_last' = NHWC
 
     input_shape = (640, 800)  # multiple of 32, hw
@@ -57,8 +57,6 @@ def _main():
         monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
 
     # model.save(filepath=path_to_keras_model)
-
-    
 
     frozen_graph = freeze_session(K.get_session(),
                                   output_names=[out.op.name for out in model.outputs])

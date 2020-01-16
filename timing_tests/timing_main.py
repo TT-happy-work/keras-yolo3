@@ -31,9 +31,10 @@ def _main():
     # patch_shape = tuple(dim//32*32 for dim in full_scale_img_shape) #(2464, 3296) # multiple of 32, hw
     # tensor names without pruning:
     input_tensor_name = 'input_1:0'
-    output_tensors_names = ['conv2d_75/BiasAdd:0',
-                            'conv2d_67/BiasAdd:0',
-                            'conv2d_59/BiasAdd:0']
+    output_tensors_names = ['conv2d_75/BiasAdd:0', 'conv2d_67/BiasAdd:0', 'conv2d_59/BiasAdd:0']
+    if tf.__version__ in ['1.13.1', '1.13.0']:
+        # tensor, That might be because of using 1.13.1 or because using the cpu-version:
+        output_tensors_names = ['conv2d_59/add:0', 'conv2d_67/add:0', 'conv2d_75/add:0']
     # tensor names with pruning with surgeon (with arg copy == false):
     # input_tensor_name = 'input_1:0'
     # output_tensors_names = ['conv2d_75_1/BiasAdd:0',

@@ -6,8 +6,8 @@ import numpy as np
 import tensorflow as tf
 from keras import backend as K
 from keras.layers import Conv2D, Add, ZeroPadding2D, UpSampling2D, Concatenate, MaxPooling2D
-from keras.layers.advanced_activations import LeakyReLU
-from keras.layers.normalization import BatchNormalization
+from keras.layers import LeakyReLU
+from keras.layers import BatchNormalization, Lambda
 from keras.models import Model
 from keras.regularizers import l2
 
@@ -31,60 +31,121 @@ def DarknetConv2D_BN_Leaky(*args, **kwargs):
         BatchNormalization(),
         LeakyReLU(alpha=0.1))
 
-def resblock_body(x, num_filters, num_blocks):
+def resblock_body(x, num_filters, num_blocks, data_format='channels_last'):
+    '''A series of resblocks starting with a downsampling Convolution2D'''
+    # Darknet uses left and top padding instead of 'same' mode
+    x = ZeroPadding2D(((1,0),(1,0)), data_format=data_format)(x)
+
+    x = DarknetConv2D_BN_Leaky(num_filters, (3,3), strides=(2,2), data_format=data_format)(x)
+    for i in range(num_blocks):
+        y = compose(
+                DarknetConv2D_BN_Leaky(num_filters//2, (1,1), data_format=data_format),
+                DarknetConv2D_BN_Leaky(num_filters, (3,3), data_format=data_format))(x)
+        x = Add()([x,y])
+    return x
+
+
+# resnet like resblock, more prunable than the darknet resblocks
+def resnet_resblock_body(x, num_filters):
     '''A series of resblocks starting with a downsampling Convolution2D'''
     # Darknet uses left and top padding instead of 'same' mode
     x = ZeroPadding2D(((1,0),(1,0)))(x)
     x = DarknetConv2D_BN_Leaky(num_filters, (3,3), strides=(2,2))(x)
-    for i in range(num_blocks):
-        y = compose(
-                DarknetConv2D_BN_Leaky(num_filters//2, (1,1)),
-                DarknetConv2D_BN_Leaky(num_filters, (3,3)))(x)
-        x = Add()([x,y])
+
+    y = DarknetConv2D_BN_Leaky(num_filters // 4, (1, 1))(x)
+    y = DarknetConv2D_BN_Leaky(num_filters // 4, (3, 3))(y)
+    y = DarknetConv2D_BN_Leaky(num_filters, (1, 1))(y)
+
+    x = Add()([x,y])
     return x
 
-def darknet_body(x):
-    '''Darknent body having 52 Convolution2D layers'''
-    x = DarknetConv2D_BN_Leaky(32, (3,3))(x)
-    x = resblock_body(x, 64, 1)
-    x = resblock_body(x, 128, 2)
-    x = resblock_body(x, 256, 8)
-    x = resblock_body(x, 512, 8)
-    x = resblock_body(x, 1024, 4)
+def darknet_body(x, data_format='channels_last'):
+    # select the darknet body
+
+    # Config 1 - original darknet 53 body
+    # '''Darknent body having 52 Convolution2D layers'''
+    x = DarknetConv2D_BN_Leaky(32, (3,3), data_format=data_format)(x)
+    x = resblock_body(x, 64, 1, data_format=data_format)
+    x = resblock_body(x, 128, 2, data_format=data_format)
+    x = resblock_body(x, 256, 8, data_format=data_format)
+    x = resblock_body(x, 512, 8, data_format=data_format)
+    x = resblock_body(x, 1024, 4, data_format=data_format)
+
+    # Config 2  - smaller size darknet, having 32 conv layers (reduce the resblocks length by 2 factor)
+    # '''Darknent body having 32 Convolution2D layers'''
+    # x = DarknetConv2D_BN_Leaky(32, (3,3))(x)
+    # x = resblock_body(x, 64, 1)
+    # x = resblock_body(x, 128, 2)
+    # x = resblock_body(x, 256, 4)
+    # x = resblock_body(x, 512, 4)
+    # x = resblock_body(x, 1024, 2)
+
+    # Config 3 - using resnet style blocks to have more prunable layers
+    # x = DarknetConv2D_BN_Leaky(32, (3,3))(x)
+    # x = resnet_resblock_body(x, 64)
+    # x = resnet_resblock_body(x, 128)
+    # x = resnet_resblock_body(x, 256)
+    # x = resnet_resblock_body(x, 512)
+    # x = resnet_resblock_body(x, 1024)
+
     return x
 
-def make_last_layers(x, num_filters, out_filters):
+
+def make_last_layers(x, num_filters, out_filters, data_format='channels_last'):
     '''6 Conv2D_BN_Leaky layers followed by a Conv2D_linear layer'''
     x = compose(
-            DarknetConv2D_BN_Leaky(num_filters, (1,1)),
-            DarknetConv2D_BN_Leaky(num_filters*2, (3,3)),
-            DarknetConv2D_BN_Leaky(num_filters, (1,1)),
-            DarknetConv2D_BN_Leaky(num_filters*2, (3,3)),
-            DarknetConv2D_BN_Leaky(num_filters, (1,1)))(x)
+            DarknetConv2D_BN_Leaky(num_filters, (1,1), data_format=data_format),
+            DarknetConv2D_BN_Leaky(num_filters*2, (3,3), data_format=data_format),
+            DarknetConv2D_BN_Leaky(num_filters, (1,1), data_format=data_format),
+            DarknetConv2D_BN_Leaky(num_filters*2, (3,3), data_format=data_format),
+            DarknetConv2D_BN_Leaky(num_filters, (1,1), data_format=data_format))(x)
     y = compose(
-            DarknetConv2D_BN_Leaky(num_filters*2, (3,3)),
-            DarknetConv2D(out_filters, (1,1)))(x)
+            DarknetConv2D_BN_Leaky(num_filters*2, (3,3), data_format=data_format),
+            DarknetConv2D(out_filters, (1,1), data_format=data_format))(x)
     return x, y
 
 
-def yolo_body(inputs, num_anchors, num_classes):
+def yolo_body(inputs, num_anchors, num_classes, data_format='channels_last'):
     """Create YOLO_V3 model CNN body in Keras."""
-    darknet = Model(inputs, darknet_body(inputs))
-    x, y1 = make_last_layers(darknet.output, 512, num_anchors*(num_classes+5))
+    darknet = Model(inputs, darknet_body(inputs, data_format=data_format))
+    x, y1 = make_last_layers(darknet.output, 512, num_anchors*(num_classes+5), data_format=data_format)
+
+    # yolo body changes when using different backbones
+    # original - Darknet 53
+    x = compose(
+            DarknetConv2D_BN_Leaky(256, (1,1), data_format=data_format),
+            UpSampling2D(2, data_format=data_format))(x)
+    if data_format == 'channels_last':
+        x = Concatenate()([x,darknet.layers[152].output])
+    elif data_format == 'channels_first':
+        x = Concatenate(axis=1)([x, darknet.layers[152].output])
+    x, y2 = make_last_layers(x, 256, num_anchors*(num_classes+5), data_format=data_format)
 
     x = compose(
-            DarknetConv2D_BN_Leaky(256, (1,1)),
-            UpSampling2D(2))(x)
-    x = Concatenate()([x,darknet.layers[152].output])
-    x, y2 = make_last_layers(x, 256, num_anchors*(num_classes+5))
+            DarknetConv2D_BN_Leaky(128, (1,1), data_format=data_format),
+            UpSampling2D(2, data_format=data_format))(x)
+    if data_format == 'channels_last':
+        x = Concatenate()([x,darknet.layers[92].output])
+    elif data_format == 'channels_first':
+        x = Concatenate(axis=1)([x, darknet.layers[92].output])
+    x, y3 = make_last_layers(x, 128, num_anchors*(num_classes+5), data_format=data_format)
 
-    x = compose(
-            DarknetConv2D_BN_Leaky(128, (1,1)),
-            UpSampling2D(2))(x)
-    x = Concatenate()([x,darknet.layers[92].output])
-    x, y3 = make_last_layers(x, 128, num_anchors*(num_classes+5))
+    # changes for darknet 33
+    # The changes in yolo body are setting the concatenated layers according to the changes of layers number
+    # x = compose(
+    #         DarknetConv2D_BN_Leaky(256, (1,1)),
+    #         UpSampling2D(2))(x)
+    # x = Concatenate()([x,darknet.layers[59].output])
+    # x, y2 = make_last_layers(x, 256, num_anchors*(num_classes+5))
+    #
+    # x = compose(
+    #         DarknetConv2D_BN_Leaky(128, (1,1)),
+    #         UpSampling2D(2))(x)
+    # x = Concatenate()([x,darknet.layers[45].output])
+    # x, y3 = make_last_layers(x, 128, num_anchors*(num_classes+5))
 
     return Model(inputs, [y1,y2,y3])
+
 
 def tiny_yolo_body(inputs, num_anchors, num_classes):
     '''Create Tiny YOLO_v3 model CNN body in keras.'''
@@ -126,10 +187,13 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     anchors_tensor = K.reshape(K.constant(anchors), [1, 1, 1, num_anchors, 2])
 
     grid_shape = K.shape(feats)[1:3] # height, width
-    grid_y = K.tile(K.reshape(K.arange(0, stop=grid_shape[0]), [-1, 1, 1, 1]),
-        [1, grid_shape[1], 1, 1])
-    grid_x = K.tile(K.reshape(K.arange(0, stop=grid_shape[1]), [1, -1, 1, 1]),
-        [grid_shape[0], 1, 1, 1])
+
+
+    # k_reshaped = K.arange(0, stop=grid_shape[0]), [-1, 1, 1, 1]
+    # grid_y = Lambda(keras.backend.tile, arguments={'n':(-1, 64, 64, 1)})(k_reshaped)
+
+    grid_y = K.tile(K.reshape(K.arange(0, stop=grid_shape[0]), [-1, 1, 1, 1]), [1, grid_shape[1], 1, 1])
+    grid_x = K.tile(K.reshape(K.arange(0, stop=grid_shape[1]), [1, -1, 1, 1]), [grid_shape[0], 1, 1, 1])
     grid = K.concatenate([grid_x, grid_y])
     grid = K.cast(grid, K.dtype(feats))
 
@@ -181,7 +245,7 @@ def yolo_boxes_and_scores(feats, anchors, num_classes, input_shape, image_shape)
     boxes = K.reshape(boxes, [-1, 4])
     box_scores = box_confidence * box_class_probs
     box_scores = K.reshape(box_scores, [-1, num_classes])
-    return boxes, box_scores
+    return boxes, box_scores, box_confidence
 
 
 def yolo_eval(yolo_outputs,
@@ -197,11 +261,14 @@ def yolo_eval(yolo_outputs,
     input_shape = K.shape(yolo_outputs[0])[1:3] * 32
     boxes = []
     box_scores = []
+    box_confidence =[]
     for l in range(num_layers):
-        _boxes, _box_scores = yolo_boxes_and_scores(yolo_outputs[l],
+        _boxes, _box_scores,_box_confidence = yolo_boxes_and_scores(yolo_outputs[l],
             anchors[anchor_mask[l]], num_classes, input_shape, image_shape)
         boxes.append(_boxes)
         box_scores.append(_box_scores)
+        box_confidence.append(_box_confidence)
+
     boxes = K.concatenate(boxes, axis=0)
     box_scores = K.concatenate(box_scores, axis=0)
 
@@ -226,7 +293,7 @@ def yolo_eval(yolo_outputs,
     scores_ = K.concatenate(scores_, axis=0)
     classes_ = K.concatenate(classes_, axis=0)
 
-    return boxes_, scores_, classes_
+    return boxes_, scores_, classes_ , box_confidence
 
 
 def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
@@ -358,6 +425,13 @@ def yolo_loss(args, anchors, num_classes, ignore_thresh=.5, print_loss=False):
     loss: tensor, shape=(1,)
 
     '''
+    import tensorflow as tf
+
+    # for some reason when calling to yolo loss as part of load model the anchors become lists instead of nd arrays.
+    # this changes it back
+    anchors = np.asarray(anchors)
+
+
     num_layers = len(anchors)//3 # default setting
     yolo_outputs = args[:num_layers]
     y_true = args[num_layers:]
@@ -372,8 +446,38 @@ def yolo_loss(args, anchors, num_classes, ignore_thresh=.5, print_loss=False):
         object_mask = y_true[l][..., 4:5]
         true_class_probs = y_true[l][..., 5:]
 
+        # defining the yolo_head again inside yolo_loss to enable creating the keras surgeon with copy=true
+        def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
+            """Convert final layer features to bounding box parameters."""
+            num_anchors = len(anchors)
+            # Reshape to batch, height, width, num_anchors, box_params.
+            anchors_tensor = K.reshape(K.constant(anchors), [1, 1, 1, num_anchors, 2])
+
+            grid_shape = K.shape(feats)[1:3]  # height, width
+
+            # k_reshaped = K.arange(0, stop=grid_shape[0]), [-1, 1, 1, 1]
+            # grid_y = Lambda(keras.backend.tile, arguments={'n':(-1, 64, 64, 1)})(k_reshaped)
+
+            grid_y = K.tile(K.reshape(K.arange(0, stop=grid_shape[0]), [-1, 1, 1, 1]), [1, grid_shape[1], 1, 1])
+            grid_x = K.tile(K.reshape(K.arange(0, stop=grid_shape[1]), [1, -1, 1, 1]), [grid_shape[0], 1, 1, 1])
+            grid = K.concatenate([grid_x, grid_y])
+            grid = K.cast(grid, K.dtype(feats))
+
+            feats = K.reshape(
+                feats, [-1, grid_shape[0], grid_shape[1], num_anchors, num_classes + 5])
+
+            # Adjust preditions to each spatial grid point and anchor size.
+            box_xy = (K.sigmoid(feats[..., :2]) + grid) / K.cast(grid_shape[::-1], K.dtype(feats))
+            box_wh = K.exp(feats[..., 2:4]) * anchors_tensor / K.cast(input_shape[::-1], K.dtype(feats))
+            box_confidence = K.sigmoid(feats[..., 4:5])
+            box_class_probs = K.sigmoid(feats[..., 5:])
+
+            if calc_loss == True:
+                return grid, feats, box_xy, box_wh
+            return box_xy, box_wh, box_confidence, box_class_probs
         grid, raw_pred, pred_xy, pred_wh = yolo_head(yolo_outputs[l],
              anchors[anchor_mask[l]], num_classes, input_shape, calc_loss=True)
+
         pred_box = K.concatenate([pred_xy, pred_wh])
 
         # Darknet raw box to calculate loss.
@@ -385,8 +489,51 @@ def yolo_loss(args, anchors, num_classes, ignore_thresh=.5, print_loss=False):
         # Find ignore mask, iterate over each of batch.
         ignore_mask = tf.TensorArray(K.dtype(y_true[0]), size=1, dynamic_size=True)
         object_mask_bool = K.cast(object_mask, 'bool')
+
+        # defining the loop_body again inside yolo_loss to enable creating the keras surgeon with copy=true
         def loop_body(b, ignore_mask):
             true_box = tf.boolean_mask(y_true[l][b,...,0:4], object_mask_bool[b,...,0])
+            # defining the box_iou again inside loop_body to enable creating the keras surgeon with copy=true
+            def box_iou(b1, b2):
+                '''Return iou tensor
+
+                Parameters
+                ----------
+                b1: tensor, shape=(i1,...,iN, 4), xywh
+                b2: tensor, shape=(j, 4), xywh
+
+                Returns
+                -------
+                iou: tensor, shape=(i1,...,iN, j)
+
+                '''
+
+                # Expand dim to apply broadcasting.
+                b1 = K.expand_dims(b1, -2)
+                b1_xy = b1[..., :2]
+                b1_wh = b1[..., 2:4]
+                b1_wh_half = b1_wh / 2.
+                b1_mins = b1_xy - b1_wh_half
+                b1_maxes = b1_xy + b1_wh_half
+
+                # Expand dim to apply broadcasting.
+                b2 = K.expand_dims(b2, 0)
+                b2_xy = b2[..., :2]
+                b2_wh = b2[..., 2:4]
+                b2_wh_half = b2_wh / 2.
+                b2_mins = b2_xy - b2_wh_half
+                b2_maxes = b2_xy + b2_wh_half
+
+                intersect_mins = K.maximum(b1_mins, b2_mins)
+                intersect_maxes = K.minimum(b1_maxes, b2_maxes)
+                intersect_wh = K.maximum(intersect_maxes - intersect_mins, 0.)
+                intersect_area = intersect_wh[..., 0] * intersect_wh[..., 1]
+                b1_area = b1_wh[..., 0] * b1_wh[..., 1]
+                b2_area = b2_wh[..., 0] * b2_wh[..., 1]
+                iou = intersect_area / (b1_area + b2_area - intersect_area)
+
+                return iou
+
             iou = box_iou(pred_box[b], true_box)
             best_iou = K.max(iou, axis=-1)
             ignore_mask = ignore_mask.write(b, K.cast(best_iou<ignore_thresh, K.dtype(true_box)))

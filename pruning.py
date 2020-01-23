@@ -18,6 +18,7 @@ from collections import OrderedDict
 import json
 from tensorflow.python.client import timeline
 from operator import itemgetter
+import sys
 
 
 def get_prunable_layers():
@@ -37,11 +38,11 @@ def get_prunable_layers():
                           ]
 
     ######################### darknet resnet 5 blocks  ######################################
-    prunable_layers_id = [3,4, 7,8 ,11,12, 15,16, 19,20,            # darknet resnet
-                            22, 23, 24, 25, 26, 28,29, 30,31,32,    # out of the backbone
-                            33, 34, 35, 37, 38, 39,40, 41,
-                            42, 43
-                          ]
+    # prunable_layers_id = [3,4, 7,8 ,11,12, 15,16, 19,20,            # darknet resnet
+    #                         22, 23, 24, 25, 26, 28,29, 30,31,32,    # out of the backbone
+    #                         33, 34, 35, 37, 38, 39,40, 41,
+    #                         42, 43
+    #                       ]
 
     ######################### short list for testing  ######################################
     prunable_layers_id = [3, 6]
@@ -65,6 +66,10 @@ def get_prunable_layers():
 
 def _main():
 
+
+    epochs_trained = int(sys.argv[1])
+    pruning_cycle = int(sys.argv[2])
+    # print('epochs trained is ' + epochs_trained + ' and pruning cycle are' +pruning_cycle)
     annotation_path = 'model_data/cropped.txt'
     log_dir = 'logs/000/'
     classes_path = 'model_data/recce.names'
@@ -72,14 +77,15 @@ def _main():
     class_names = get_classes(classes_path)
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
-    after_pruning_epochs = 1  # TODO - decide number of epochs after pruning
+    recovery_epochs = 1  # TODO - decide number of epochs after pruning
     data_format = 'channels_last'  # 'channels_first' == NCHW, 'channels_last' = NHWC
     input_shape = (640, 800)  # multiple of 32, hw
+    # TODO: receive model_path as argument
     model_path = log_dir + 'trained_model_stage_2.h5'
 
 
     # model = keras.models.load_model(log_dir + 'trained_model_stage_2.h5', compile=False)
-    model = keras.models.load_model(log_dir + 'trained_model_pruning_cycle_1.h5', compile=False)
+    model = keras.models.load_model(model_path, compile=False)
 
     run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
     run_metadata = tf.RunMetadata()
@@ -102,14 +108,9 @@ def _main():
     num_val = int(len(lines) * val_split)
     num_train = len(lines) - num_val
 
-
-    # TODO: save the number epochs/ pruning cycles trained already
-    epochs_trained = 0
-    pruning_cycle = 0
     validation_data = data_generator_wrapper(lines[num_train:], 1, input_shape, anchors, num_classes)
 
     prunable_layers = get_prunable_layers()
-    pruning_cycle = pruning_cycle + 1
     print('Start Pruning Cycle {}:'.format(pruning_cycle))
 
     # This section runs some images from the validation set to get the runtimes timeline profiling
@@ -167,6 +168,7 @@ def _main():
         # returns a channels list (if empty don't delete any channel in layer)
         if len(channels) != 0:
             surgeon.add_job('delete_channels', layer, channels=channels)
+    # the actual pruning operation happens here:
     model = surgeon.operate()
 
     for i in range(len(model.layers)):
@@ -174,19 +176,19 @@ def _main():
     model.compile(optimizer=Adam(lr=1e-4), loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
 
     batch_size = 2  # note that more GPU memory is required after unfreezing the body
-    print('Train for {} more epochs after pruning'.format(after_pruning_epochs))
+    print('Train for {} more epochs after pruning'.format(recovery_epochs))
     model.fit_generator(data_generator_wrapper(lines[:num_train], batch_size, input_shape, anchors, num_classes),
         steps_per_epoch=max(1, num_train//batch_size),
         validation_data=data_generator_wrapper(lines[num_train:], batch_size, input_shape, anchors, num_classes),
         validation_steps=max(1, num_val//batch_size),
-        epochs=epochs_trained+after_pruning_epochs,
+        epochs=epochs_trained+recovery_epochs,
         initial_epoch=epochs_trained,
         callbacks=[logging, checkpoint, reduce_lr, early_stopping])  # original
         # callbacks=[logging, checkpoint, early_stopping, terminate_on_NaN])
         # callbacks=[logging, checkpoint, reduce_lr, early_stopping, terminate_on_NaN])
     model.save_weights(log_dir + 'trained_weights_pruning_cycle_{}.h5'.format(pruning_cycle))
     model.save(log_dir + 'trained_model_pruning_cycle_{}.h5'.format(pruning_cycle))
-    epochs_trained = epochs_trained + after_pruning_epochs
+    epochs_trained = epochs_trained + recovery_epochs
 
     # model.save_weights(log_dir + 'trained_weights_final.h5')
     # model.save(log_dir + 'trained_model_final.h5')

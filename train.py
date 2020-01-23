@@ -43,6 +43,7 @@ def _main():
     weights_path_nominal = 'model_data/yolo_weights_pony.h5'
     data_format = 'channels_last'  # 'channels_first' == NCHW, 'channels_last' = NHWC
     pruning_cycle = 0
+    epochs_trained = 0
     first_stage_epochs = 1  # 50
     second_stage_epochs = 1  # 200
     # after_pruning_epochs = 1  # TODO - decide number of epochs after pruning
@@ -130,112 +131,20 @@ def _main():
             model.save_weights(log_dir + 'trained_weights_stage_2.h5')
             model.save(log_dir + 'trained_model_stage_2.h5')
 
-    epochs_trained = epochs_trained + second_stage_epochs
+        epochs_trained = epochs_trained + second_stage_epochs
     # Further training if needed.
-
 
     # Pruning cycles and extra training after each pruning:
 
+    while(perform_pruning_cycle):
+        pruning_cycle = pruning_cycle + 1
+        os.system('python pruning.py ' + str(epochs_trained) + ' ' + str(pruning_cycle))
 
-    # if perform_pruning_cycle:
-    #         # with CustomObjectScope({'yolo_loss': yolo_loss}):
-    #         # model = load_model(log_dir + 'trained_model_stage_2.h5',
-    #         #                    custom_objects={'yolo_loss': lambda y_true, y_pred: y_pred})
-    #     # model = load_model(log_dir + 'trained_model_stage_2.h5', compile=False)
-    #     model = load_model(log_dir + 'trained_model_pruning_cycle_1.h5', compile=False)
-    #     validation_data = data_generator_wrapper(lines[num_train:], 1, input_shape, anchors, num_classes)
-    #     prunable_layers = get_prunable_layers()
-    #
-    #     run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-    #     run_metadata = tf.RunMetadata()
-    #     model.compile(optimizer=Adam(lr=1e-4), loss={'yolo_loss': lambda y_true, y_pred: y_pred},
-    #                   options=run_options, run_metadata=run_metadata)
-    #     # Run model in your usual way
-    #     for i in range(10):
-    #         # TODO: -
-    #         #  Couldn't open CUDA library libcupti.so.10.0. LD_LIBRARY_PATH:
-    #         #  soultion was to add /usr/local/cuda/extras/CUPTI/lib64 to LD_LIBRARY_PATH in the pycharm configurations
-    #         #  this export is already in bashrc, not sure why it didn't work
-    #         val_input = validation_data.__next__()[0]
-    #         model.predict(val_input, batch_size=None)
-    #
-    #     ######## timeline object for runtime analysis #######
-    #     tl = timeline.Timeline(step_stats=run_metadata.step_stats)
-    #     ctf = tl.generate_chrome_trace_format()
-    #     with open('timeline.json', 'w') as f:
-    #         f.write(ctf)
-    #     f.close()
-    #     ####### timeline json #######
-    #     with open('timeline.json') as json_file:
-    #         data = json.load(json_file)
-    #
-    #     # TODO - training with online runtime analysis
-    #     gpu_proccess_id = 5
-    #     # total_dur = 0
-    #     # conv_events = []
-    #     # conv_dur = 0
-    #     conv_layers = {}
-    #
-    #     for event in data['traceEvents']:
-    #         if event['pid'] == gpu_proccess_id and 'dur' in event:
-    #             # total_dur += event['dur']
-    #             # if 'name' in event['args'] and 'Conv2D' in event['args']['name']:
-    #             if 'name' in event['args'] and 'conv2d' in event['args']['name']:
-    #                 conv_layer = event['args']['name']
-    #                 # for prefix in prefixes:
-    #                 #     conv_layer = conv_layer.replace(prefix, '')
-    #
-    #                 # conv_layer, _ = conv_layer.split('Conv2D', 1)
-    #                 # conv_layer, _ = conv_layer.split('conv2d', 1)
-    #                 conv_layer, _ = conv_layer.split('/', 1)
-    #                 if conv_layer not in conv_layers:
-    #                     conv_layers[conv_layer] = event['dur']
-    #                 else:
-    #                     conv_layers[conv_layer] += event['dur']
-    #                 # conv_events.append(event)
-    #                 # conv_dur += event['dur']
-    #     sorted_conv_layers = OrderedDict(sorted(conv_layers.items(), key=itemgetter(1), reverse=True))
-    #
-    #     pruning_cycle = pruning_cycle + 1
-    #     print('Start Pruning Cycle {}:'.format(pruning_cycle))
-    #     surgeon = Surgeon(model, copy=False)
-    #     # EOD - need to see if setting it to false solve OOM problems. The problem with this was that
-    #     # keract get_activations after pruning didn't work. need to see why
-    #     # now looks like its working. check the whole flow
-    #     # surgeon = Surgeon(model, copy=True)
-    #     for layer_name in prunable_layers:
-    #         layer = model.get_layer(name=layer_name)
-    #         channels = get_weakest_channels_in_layer(model=model, layer_name=layer_name,
-    #                                                  val_inputs_generator=validation_data, val_set_len=num_val)
-    #         # returns a channels list (if empty don't delete any channel in layer)
-    #         if len(channels) != 0:
-    #             surgeon.add_job('delete_channels', layer, channels=channels)
-    #     model = surgeon.operate()
-    #
-    #     for i in range(len(model.layers)):
-    #         model.layers[i].trainable = True
-    #     model.compile(optimizer=Adam(lr=1e-4),
-    #                   loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
-    #
-    #     batch_size = 2  # note that more GPU memory is required after unfreezing the body
-    #     print('Train for {} more epochs after pruning'.format(after_pruning_epochs))
-    #     model.fit_generator(data_generator_wrapper(lines[:num_train], batch_size, input_shape, anchors, num_classes),
-    #                         steps_per_epoch=max(1, num_train // batch_size),
-    #                         validation_data=data_generator_wrapper(lines[num_train:], batch_size, input_shape, anchors,
-    #                                                                num_classes),
-    #                         validation_steps=max(1, num_val // batch_size),
-    #                         epochs=epochs_trained + after_pruning_epochs,
-    #                         initial_epoch=epochs_trained,
-    #                         callbacks=[logging, checkpoint, reduce_lr, early_stopping])  # original
-    #     # callbacks=[logging, checkpoint, early_stopping, terminate_on_NaN])
-    #     # callbacks=[logging, checkpoint, reduce_lr, early_stopping, terminate_on_NaN])
-    #     model.save_weights(log_dir + 'trained_weights_pruning_cycle_{}.h5'.format(pruning_cycle))
-    #     model.save(log_dir + 'trained_model_pruning_cycle_{}.h5'.format(pruning_cycle))
-    #     epochs_trained = epochs_trained + after_pruning_epochs
-    #
-    #     # TODO:
-    #     # update finished_pruning flag according to runtimes or detection results
-    #
+
+        # TODO: decide when switching perform_pruning_cycle off
+
+
+
     #     model.save_weights(log_dir + 'trained_weights_final.h5')
     #     model.save(log_dir + 'trained_model_final.h5')
 

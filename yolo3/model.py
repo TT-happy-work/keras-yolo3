@@ -112,6 +112,8 @@ def yolo_body(inputs, num_anchors, num_classes, data_format='channels_last'):
 
     # yolo body changes when using different backbones
     # original - Darknet 53
+    # nadav - when using different models update the concatenated layers numbers/
+    # in the original darknet it's where it is hard coded 152, 92
     x = compose(
             DarknetConv2D_BN_Leaky(256, (1,1), data_format=data_format),
             UpSampling2D(2, data_format=data_format))(x)
@@ -133,16 +135,22 @@ def yolo_body(inputs, num_anchors, num_classes, data_format='channels_last'):
     # changes for darknet 33
     # The changes in yolo body are setting the concatenated layers according to the changes of layers number
     # x = compose(
-    #         DarknetConv2D_BN_Leaky(256, (1,1)),
-    #         UpSampling2D(2))(x)
-    # x = Concatenate()([x,darknet.layers[59].output])
-    # x, y2 = make_last_layers(x, 256, num_anchors*(num_classes+5))
+    #         DarknetConv2D_BN_Leaky(256, (1,1), data_format=data_format),
+    #         UpSampling2D(2, data_format=data_format))(x)
+    # if data_format == 'channels_last':
+    #     x = Concatenate()([x,darknet.layers[59].output])
+    # elif data_format == 'channels_first':
+    #     x = Concatenate(axis=1)([x, darknet.layers[59].output])
+    # x, y2 = make_last_layers(x, 256, num_anchors*(num_classes+5), data_format=data_format)
     #
     # x = compose(
-    #         DarknetConv2D_BN_Leaky(128, (1,1)),
-    #         UpSampling2D(2))(x)
-    # x = Concatenate()([x,darknet.layers[45].output])
-    # x, y3 = make_last_layers(x, 128, num_anchors*(num_classes+5))
+    #         DarknetConv2D_BN_Leaky(128, (1,1), data_format=data_format),
+    #         UpSampling2D(2, data_format=data_format))(x)
+    # if data_format == 'channels_last':
+    #     x = Concatenate()([x,darknet.layers[45].output])
+    # elif data_format == 'channels_first':
+    #     x = Concatenate(axis=1)([x, darknet.layers[45].output])
+    # x, y3 = make_last_layers(x, 128, num_anchors*(num_classes+5), data_format=data_format)
 
     return Model(inputs, [y1,y2,y3])
 

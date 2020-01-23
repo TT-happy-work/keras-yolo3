@@ -69,7 +69,7 @@ def _main():
 
     epochs_trained = int(sys.argv[1])
     pruning_cycle = int(sys.argv[2])
-    # print('epochs trained is ' + epochs_trained + ' and pruning cycle are' +pruning_cycle)
+    model_path = sys.argv[3]
     annotation_path = 'model_data/cropped.txt'
     log_dir = 'logs/000/'
     classes_path = 'model_data/recce.names'
@@ -80,8 +80,7 @@ def _main():
     recovery_epochs = 1  # TODO - decide number of epochs after pruning
     data_format = 'channels_last'  # 'channels_first' == NCHW, 'channels_last' = NHWC
     input_shape = (640, 800)  # multiple of 32, hw
-    # TODO: receive model_path as argument
-    model_path = log_dir + 'trained_model_stage_2.h5'
+
 
 
     # model = keras.models.load_model(log_dir + 'trained_model_stage_2.h5', compile=False)

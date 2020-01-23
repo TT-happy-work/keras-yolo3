@@ -42,7 +42,7 @@ def _main():
     weights_path_tiny = 'model_data/tiny_yolo_weights.h5'
     weights_path_nominal = 'model_data/yolo_weights_pony.h5'
     data_format = 'channels_last'  # 'channels_first' == NCHW, 'channels_last' = NHWC
-    pruning_cycle = 0
+    pruning_cycle = 1
     epochs_trained = 0
     first_stage_epochs = 1  # 50
     second_stage_epochs = 1  # 200
@@ -136,9 +136,12 @@ def _main():
 
     # Pruning cycles and extra training after each pruning:
 
+    model_path = log_dir + 'trained_model_stage_2.h5'
     while(perform_pruning_cycle):
+        os.system('python pruning.py ' + str(epochs_trained) + ' ' + str(pruning_cycle) + ' ' + model_path)
+        model_path = log_dir + 'trained_model_pruning_cycle_{}.h5'.format(pruning_cycle)
         pruning_cycle = pruning_cycle + 1
-        os.system('python pruning.py ' + str(epochs_trained) + ' ' + str(pruning_cycle))
+
 
 
         # TODO: decide when switching perform_pruning_cycle off
